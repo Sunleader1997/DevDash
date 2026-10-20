@@ -211,12 +211,57 @@ export class GitService {
   async commit(repoPath: string, message: string, paths?: string[]): Promise<string> {
     const args = ['commit', '-m', message]
     if (paths && paths.length) {
-      // Ensure newly created files under paths are included
       await git(repoPath, ['add', '--', ...paths])
       args.push('--', ...paths)
     }
     const out = await git(repoPath, args)
     return out
+  }
+
+  async push(repoPath: string, remote = 'origin', ref?: string): Promise<string> {
+    const args = ['push', remote]
+    if (ref) args.push(ref)
+    return git(repoPath, args)
+  }
+
+  async unpushedCommits(repoPath: string, limit = 30): Promise<GitCommit[]> {
+    // Prefer upstream range; fall back to origin/<branch>..HEAD
+    try {
+      return await this.logRange(repoPath, '@{upstream}..HEAD', limit)
+    } catch {
+      const branch = await this.currentBranch(repoPath)
+      if (!branch) return []
+      try {
+        return await this.logRange(repoPath, `origin/${branch}..HEAD`, limit)
+      } catch {
+        // No remote tracking — show recent commits as reference
+        return this.log(repoPath, Math.min(limit, 10), 0)
+      }
+    }
+  }
+
+  private async logRange(repoPath: string, range: string, limit: number): Promise<GitCommit[]> {
+    const sep = '\x1f'
+    const out = await git(repoPath, [
+      'log',
+      `--max-count=${limit}`,
+      `--pretty=format:%H${sep}%h${sep}%s${sep}%an${sep}%ae${sep}%aI`,
+      range
+    ])
+    return out
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const [hash, shortHash, subject, authorName, authorEmail, date] = line.split(sep)
+        return {
+          hash: hash ?? '',
+          shortHash: shortHash ?? '',
+          subject: subject ?? '',
+          authorName: authorName ?? '',
+          authorEmail: authorEmail ?? '',
+          date: date ?? ''
+        }
+      })
   }
 
   async listFiles(repoPath: string): Promise<string[]> {

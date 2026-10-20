@@ -34,6 +34,8 @@ const api = {
   listFiles: (repoPath) => invoke("git:list-files", repoPath),
   addPaths: (repoPath, paths) => invoke("git:add", repoPath, paths),
   commit: (repoPath, message, paths) => invoke("git:commit", repoPath, message, paths),
+  push: (repoPath, remote, ref) => invoke("git:push", repoPath, remote, ref),
+  unpushed: (repoPath) => invoke("git:unpushed", repoPath),
   branches: (repoPath) => invoke("git:branches", repoPath),
   checkout: (repoPath, branch) => invoke("git:checkout", repoPath, branch),
   log: (repoPath, limit, skip) => invoke("git:log", repoPath, limit, skip),
@@ -274,23 +276,62 @@ const pluginCss = `
 }
 .gm-commit-form {
   display: flex;
+  flex-direction: column;
   gap: 8px;
   padding: 10px 12px;
   border-top: 1px solid var(--separator);
   background: var(--bg-elevated);
 }
-.gm-commit-form input {
-  flex: 1;
-  min-width: 0;
+.gm-commit-form textarea {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
   border-radius: 8px;
   border: 1px solid var(--separator);
   background: var(--bg);
-  padding: 7px 10px;
+  padding: 8px 10px;
   outline: none;
+  font-family: var(--font-sans);
+  line-height: 1.45;
 }
-.gm-commit-form input:focus {
+.gm-commit-form textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.gm-commit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.gm-push-list {
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--separator);
+  border-radius: 8px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.gm-push-item {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+.gm-push-item:hover {
+  background: var(--bg-hover);
+}
+.gm-push-item code {
+  color: var(--accent);
+  font-family: var(--font-mono, monospace);
+}
+.gm-push-item .muted {
+  margin-left: auto;
+  color: var(--fg-secondary);
+  font-size: 11px;
 }
 
 .gm-row-add {
@@ -1255,6 +1296,7 @@ function RepoWorkspace({
   const [commitChecked, setCommitChecked] = useState(/* @__PURE__ */ new Set());
   const [commitMsg, setCommitMsg] = useState("");
   const [committing, setCommitting] = useState(false);
+  const [pushOpen, setPushOpen] = useState(false);
   const [commits, setCommits] = useState([]);
   const [selectedCommit, setSelectedCommit] = useState(null);
   const [commitFiles, setCommitFiles] = useState([]);
@@ -1528,15 +1570,15 @@ function RepoWorkspace({
   const toggleAllCommit = () => {
     setCommitChecked(allChecked ? /* @__PURE__ */ new Set() : new Set(commitableFiles));
   };
-  const runCommit = async () => {
+  const runCommit = async (opts) => {
     const paths = commitableFiles.filter((f) => commitChecked.has(f));
     if (!commitMsg.trim()) {
       onToast("请输入 commit message", true);
-      return;
+      return false;
     }
     if (paths.length === 0) {
       onToast("请勾选要提交的文件", true);
-      return;
+      return false;
     }
     setCommitting(true);
     try {
@@ -1547,8 +1589,11 @@ function RepoWorkspace({
       setCommitMode(false);
       await refreshStatus();
       await refreshLog();
+      if (opts == null ? void 0 : opts.thenPush) setPushOpen(true);
+      return true;
     } catch (e) {
       onToast(e.message, true);
+      return false;
     } finally {
       setCommitting(false);
     }
@@ -1602,6 +1647,19 @@ function RepoWorkspace({
             /* @__PURE__ */ jsxs("div", { className: "gm-panel-header gm-panel-header-row", children: [
               /* @__PURE__ */ jsx("span", { children: "文件目录" }),
               /* @__PURE__ */ jsxs("div", { style: { display: "flex", gap: 4 }, children: [
+                /* @__PURE__ */ jsx(
+                  "button",
+                  {
+                    className: "gm-btn icon",
+                    title: "推送 Push",
+                    "aria-label": "Push",
+                    onClick: () => setPushOpen(true),
+                    children: /* @__PURE__ */ jsxs("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": true, children: [
+                      /* @__PURE__ */ jsx("path", { d: "M8 12V3M4.5 6.5L8 3l3.5 3.5", fill: "none", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round" }),
+                      /* @__PURE__ */ jsx("path", { d: "M3 13h10", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round" })
+                    ] })
+                  }
+                ),
                 /* @__PURE__ */ jsx(
                   "button",
                   {
@@ -1689,28 +1747,38 @@ function RepoWorkspace({
               ] }),
               /* @__PURE__ */ jsxs("div", { className: "gm-commit-form", children: [
                 /* @__PURE__ */ jsx(
-                  "input",
+                  "textarea",
                   {
                     placeholder: "commit message",
                     value: commitMsg,
                     onChange: (e) => setCommitMsg(e.target.value),
-                    onKeyDown: (e) => {
-                      if (e.key === "Enter") void runCommit();
-                    }
+                    rows: 5
                   }
                 ),
-                /* @__PURE__ */ jsxs(
-                  "button",
-                  {
-                    className: "gm-btn primary",
-                    disabled: committing || !commitMsg.trim() || commitChecked.size === 0,
-                    onClick: () => void runCommit(),
-                    children: [
-                      /* @__PURE__ */ jsx("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": true, children: /* @__PURE__ */ jsx("path", { d: "M3 8.5l3.5 3.5L13 4", fill: "none", stroke: "currentColor", strokeWidth: "1.8", strokeLinecap: "round", strokeLinejoin: "round" }) }),
-                      /* @__PURE__ */ jsx("span", { children: "commit" })
-                    ]
-                  }
-                )
+                /* @__PURE__ */ jsxs("div", { className: "gm-commit-actions", children: [
+                  /* @__PURE__ */ jsxs(
+                    "button",
+                    {
+                      className: "gm-btn primary",
+                      disabled: committing || !commitMsg.trim() || commitChecked.size === 0,
+                      onClick: () => void runCommit(),
+                      children: [
+                        /* @__PURE__ */ jsx("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": true, children: /* @__PURE__ */ jsx("path", { d: "M3 8.5l3.5 3.5L13 4", fill: "none", stroke: "currentColor", strokeWidth: "1.8", strokeLinecap: "round", strokeLinejoin: "round" }) }),
+                        /* @__PURE__ */ jsx("span", { children: "commit" })
+                      ]
+                    }
+                  ),
+                  /* @__PURE__ */ jsx(
+                    "button",
+                    {
+                      className: "gm-btn",
+                      disabled: committing || !commitMsg.trim() || commitChecked.size === 0,
+                      onClick: () => void runCommit({ thenPush: true }),
+                      title: "commit 后打开 push",
+                      children: /* @__PURE__ */ jsx("span", { children: "commit and push" })
+                    }
+                  )
+                ] })
               ] })
             ] }) : /* @__PURE__ */ jsx("div", { className: "gm-scroll", children: /* @__PURE__ */ jsx(
               FileTree,
@@ -1791,8 +1859,112 @@ function RepoWorkspace({
         ]
       }
     ),
-    mrOpen && /* @__PURE__ */ jsx(MrPanel, { repo, branches, onClose: () => setMrOpen(false), onToast })
+    mrOpen && /* @__PURE__ */ jsx(MrPanel, { repo, branches, onClose: () => setMrOpen(false), onToast }),
+    pushOpen && /* @__PURE__ */ jsx(
+      PushPanel,
+      {
+        repo,
+        defaultBranch: repo.branch || "master",
+        onClose: () => setPushOpen(false),
+        onToast,
+        onPushed: () => {
+          void refreshStatus();
+          void refreshLog();
+        }
+      }
+    )
   ] });
+}
+function PushPanel({
+  repo,
+  defaultBranch,
+  onClose,
+  onToast,
+  onPushed
+}) {
+  const [branch, setBranch] = useState(defaultBranch);
+  const [remote, setRemote] = useState("origin");
+  const [commits, setCommits] = useState([]);
+  const [pushing, setPushing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    void (async () => {
+      setLoading(true);
+      try {
+        setCommits(await api.unpushed(repo.path));
+      } catch {
+        setCommits([]);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [repo.path]);
+  const doPush = async () => {
+    if (!branch.trim()) {
+      onToast("请填写目标分支", true);
+      return;
+    }
+    setPushing(true);
+    try {
+      await api.tasks(
+        "push",
+        `push → ${branch}`,
+        () => api.push(repo.path, remote.trim() || "origin", `HEAD:refs/heads/${branch.trim()}`)
+      );
+      onToast("推送成功");
+      onPushed == null ? void 0 : onPushed();
+      onClose();
+    } catch (e) {
+      onToast(e.message, true);
+    } finally {
+      setPushing(false);
+    }
+  };
+  return /* @__PURE__ */ jsx("div", { className: "gm-modal-backdrop", onClick: onClose, children: /* @__PURE__ */ jsxs("div", { className: "gm-modal", onClick: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ jsxs("div", { className: "gm-modal-header", children: [
+      "Push · ",
+      repo.name
+    ] }),
+    /* @__PURE__ */ jsxs("div", { className: "gm-modal-body", children: [
+      /* @__PURE__ */ jsxs("div", { className: "gm-field", children: [
+        /* @__PURE__ */ jsx("label", { children: "待推送 commit" }),
+        /* @__PURE__ */ jsxs("div", { className: "gm-push-list", children: [
+          loading && /* @__PURE__ */ jsx("div", { className: "muted", children: "加载中…" }),
+          !loading && commits.length === 0 && /* @__PURE__ */ jsx("div", { className: "muted", children: "没有待推送的提交（或无远程跟踪）" }),
+          commits.map((c) => /* @__PURE__ */ jsxs("div", { className: "gm-push-item", children: [
+            /* @__PURE__ */ jsx("code", { children: c.shortHash }),
+            /* @__PURE__ */ jsx("span", { children: c.subject }),
+            /* @__PURE__ */ jsx("span", { className: "muted", children: c.authorName })
+          ] }, c.hash))
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxs("div", { className: "gm-field", children: [
+        /* @__PURE__ */ jsx("label", { children: "Remote" }),
+        /* @__PURE__ */ jsx("input", { value: remote, onChange: (e) => setRemote(e.target.value), placeholder: "origin" })
+      ] }),
+      /* @__PURE__ */ jsxs("div", { className: "gm-field", children: [
+        /* @__PURE__ */ jsx("label", { children: "目标分支" }),
+        /* @__PURE__ */ jsx(
+          "input",
+          {
+            value: branch,
+            onChange: (e) => setBranch(e.target.value),
+            placeholder: "默认当前分支"
+          }
+        )
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxs("div", { className: "gm-modal-footer", children: [
+      /* @__PURE__ */ jsx("button", { className: "gm-btn", onClick: onClose, children: "取消" }),
+      /* @__PURE__ */ jsxs("button", { className: "gm-btn primary", disabled: pushing, onClick: () => void doPush(), children: [
+        /* @__PURE__ */ jsxs("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": true, children: [
+          /* @__PURE__ */ jsx("path", { d: "M8 12V3M4.5 6.5L8 3l3.5 3.5", fill: "none", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round" }),
+          /* @__PURE__ */ jsx("path", { d: "M3 13h10", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round" })
+        ] }),
+        /* @__PURE__ */ jsx("span", { children: pushing ? "推送中…" : "Push" })
+      ] })
+    ] })
+  ] }) });
 }
 function FileBlocked({
   tab,

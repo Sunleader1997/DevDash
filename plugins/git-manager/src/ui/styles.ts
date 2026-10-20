@@ -212,23 +212,62 @@ export const pluginCss = `
 }
 .gm-commit-form {
   display: flex;
+  flex-direction: column;
   gap: 8px;
   padding: 10px 12px;
   border-top: 1px solid var(--separator);
   background: var(--bg-elevated);
 }
-.gm-commit-form input {
-  flex: 1;
-  min-width: 0;
+.gm-commit-form textarea {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
   border-radius: 8px;
   border: 1px solid var(--separator);
   background: var(--bg);
-  padding: 7px 10px;
+  padding: 8px 10px;
   outline: none;
+  font-family: var(--font-sans);
+  line-height: 1.45;
 }
-.gm-commit-form input:focus {
+.gm-commit-form textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.gm-commit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.gm-push-list {
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--separator);
+  border-radius: 8px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.gm-push-item {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+.gm-push-item:hover {
+  background: var(--bg-hover);
+}
+.gm-push-item code {
+  color: var(--accent);
+  font-family: var(--font-mono, monospace);
+}
+.gm-push-item .muted {
+  margin-left: auto;
+  color: var(--fg-secondary);
+  font-size: 11px;
 }
 
 .gm-row-add {

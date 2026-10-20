@@ -179,6 +179,10 @@ export function registerIpc(): void {
   ipcMain.handle('git:commit', (_e, repoPath: string, message: string, paths?: string[]) =>
     gitService.commit(repoPath, message, paths)
   )
+  ipcMain.handle('git:push', (_e, repoPath: string, remote?: string, ref?: string) =>
+    gitService.push(repoPath, remote ?? 'origin', ref)
+  )
+  ipcMain.handle('git:unpushed', (_e, repoPath: string) => gitService.unpushedCommits(repoPath))
   ipcMain.handle('git:branches', (_e, repoPath: string) => gitService.listBranches(repoPath))
   ipcMain.handle('git:checkout', (_e, repoPath: string, branch: string) => gitService.checkout(repoPath, branch))
   ipcMain.handle('git:log', (_e, repoPath: string, limit?: number, skip?: number) =>

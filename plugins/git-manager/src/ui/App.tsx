@@ -529,6 +529,7 @@ function RepoWorkspace({
   const [commitChecked, setCommitChecked] = useState<Set<string>>(new Set())
   const [commitMsg, setCommitMsg] = useState('')
   const [committing, setCommitting] = useState(false)
+  const [pushOpen, setPushOpen] = useState(false)
   const [commits, setCommits] = useState<CommitInfo[]>([])
   const [selectedCommit, setSelectedCommit] = useState<CommitInfo | null>(null)
   const [commitFiles, setCommitFiles] = useState<DiffFileInfo[]>([])
@@ -833,15 +834,15 @@ function RepoWorkspace({
     setCommitChecked(allChecked ? new Set() : new Set(commitableFiles))
   }
 
-  const runCommit = async () => {
+  const runCommit = async (opts?: { thenPush?: boolean }): Promise<boolean> => {
     const paths = commitableFiles.filter((f) => commitChecked.has(f))
     if (!commitMsg.trim()) {
       onToast('请输入 commit message', true)
-      return
+      return false
     }
     if (paths.length === 0) {
       onToast('请勾选要提交的文件', true)
-      return
+      return false
     }
     setCommitting(true)
     try {
@@ -852,8 +853,11 @@ function RepoWorkspace({
       setCommitMode(false)
       await refreshStatus()
       await refreshLog()
+      if (opts?.thenPush) setPushOpen(true)
+      return true
     } catch (e) {
       onToast((e as Error).message, true)
+      return false
     } finally {
       setCommitting(false)
     }
@@ -919,6 +923,17 @@ function RepoWorkspace({
               <div className="gm-panel-header gm-panel-header-row">
                 <span>文件目录</span>
                 <div style={{ display: 'flex', gap: 4 }}>
+                  <button
+                    className="gm-btn icon"
+                    title="推送 Push"
+                    aria-label="Push"
+                    onClick={() => setPushOpen(true)}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden>
+                      <path d="M8 12V3M4.5 6.5L8 3l3.5 3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M3 13h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                    </svg>
+                  </button>
                   <button
                     className={cx('gm-btn icon', commitMode && 'primary')}
                     title="提交模式"
@@ -999,24 +1014,32 @@ function RepoWorkspace({
                     })}
                   </div>
                   <div className="gm-commit-form">
-                    <input
+                    <textarea
                       placeholder="commit message"
                       value={commitMsg}
                       onChange={(e) => setCommitMsg(e.target.value)}
-                      onKeyDown={(e) => {
-                        if ((e as { key?: string }).key === 'Enter') void runCommit()
-                      }}
+                      rows={5}
                     />
-                    <button
-                      className="gm-btn primary"
-                      disabled={committing || !commitMsg.trim() || commitChecked.size === 0}
-                      onClick={() => void runCommit()}
-                    >
-                      <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden>
-                        <path d="M3 8.5l3.5 3.5L13 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                      <span>commit</span>
-                    </button>
+                    <div className="gm-commit-actions">
+                      <button
+                        className="gm-btn primary"
+                        disabled={committing || !commitMsg.trim() || commitChecked.size === 0}
+                        onClick={() => void runCommit()}
+                      >
+                        <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden>
+                          <path d="M3 8.5l3.5 3.5L13 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        <span>commit</span>
+                      </button>
+                      <button
+                        className="gm-btn"
+                        disabled={committing || !commitMsg.trim() || commitChecked.size === 0}
+                        onClick={() => void runCommit({ thenPush: true })}
+                        title="commit 后打开 push"
+                      >
+                        <span>commit and push</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -1120,7 +1143,122 @@ function RepoWorkspace({
       {mrOpen && (
         <MrPanel repo={repo} branches={branches} onClose={() => setMrOpen(false)} onToast={onToast} />
       )}
+      {pushOpen && (
+        <PushPanel
+          repo={repo}
+          defaultBranch={repo.branch || 'master'}
+          onClose={() => setPushOpen(false)}
+          onToast={onToast}
+          onPushed={() => {
+            void refreshStatus()
+            void refreshLog()
+          }}
+        />
+      )}
     </>
+  )
+}
+
+function PushPanel({
+  repo,
+  defaultBranch,
+  onClose,
+  onToast,
+  onPushed
+}: {
+  repo: RepoInfo
+  defaultBranch: string
+  onClose: () => void
+  onToast: (t: string, e?: boolean) => void
+  onPushed?: () => void
+}): JSX.Element {
+  const [branch, setBranch] = useState(defaultBranch)
+  const [remote, setRemote] = useState('origin')
+  const [commits, setCommits] = useState<CommitInfo[]>([])
+  const [pushing, setPushing] = useState(false)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    void (async () => {
+      setLoading(true)
+      try {
+        setCommits(await api.unpushed(repo.path))
+      } catch {
+        setCommits([])
+      } finally {
+        setLoading(false)
+      }
+    })()
+  }, [repo.path])
+
+  const doPush = async () => {
+    if (!branch.trim()) {
+      onToast('请填写目标分支', true)
+      return
+    }
+    setPushing(true)
+    try {
+      await api.tasks('push', `push → ${branch}`, () =>
+        api.push(repo.path, remote.trim() || 'origin', `HEAD:refs/heads/${branch.trim()}`)
+      )
+      onToast('推送成功')
+      onPushed?.()
+      onClose()
+    } catch (e) {
+      onToast((e as Error).message, true)
+    } finally {
+      setPushing(false)
+    }
+  }
+
+  return (
+    <div className="gm-modal-backdrop" onClick={onClose}>
+      <div className="gm-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="gm-modal-header">Push · {repo.name}</div>
+        <div className="gm-modal-body">
+          <div className="gm-field">
+            <label>待推送 commit</label>
+            <div className="gm-push-list">
+              {loading && <div className="muted">加载中…</div>}
+              {!loading && commits.length === 0 && (
+                <div className="muted">没有待推送的提交（或无远程跟踪）</div>
+              )}
+              {commits.map((c) => (
+                <div key={c.hash} className="gm-push-item">
+                  <code>{c.shortHash}</code>
+                  <span>{c.subject}</span>
+                  <span className="muted">{c.authorName}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="gm-field">
+            <label>Remote</label>
+            <input value={remote} onChange={(e) => setRemote(e.target.value)} placeholder="origin" />
+          </div>
+          <div className="gm-field">
+            <label>目标分支</label>
+            <input
+              value={branch}
+              onChange={(e) => setBranch(e.target.value)}
+              placeholder="默认当前分支"
+            />
+          </div>
+        </div>
+        <div className="gm-modal-footer">
+          <button className="gm-btn" onClick={onClose}>
+            取消
+          </button>
+          <button className="gm-btn primary" disabled={pushing} onClick={() => void doPush()}>
+            <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden>
+              <path d="M8 12V3M4.5 6.5L8 3l3.5 3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M3 13h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+            <span>{pushing ? '推送中…' : 'Push'}</span>
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 

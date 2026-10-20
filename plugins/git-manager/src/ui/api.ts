@@ -26,6 +26,9 @@ export const api = {
   addPaths: (repoPath: string, paths: string[]) => invoke<void>('git:add', repoPath, paths),
   commit: (repoPath: string, message: string, paths?: string[]) =>
     invoke<string>('git:commit', repoPath, message, paths),
+  push: (repoPath: string, remote?: string, ref?: string) =>
+    invoke<string>('git:push', repoPath, remote, ref),
+  unpushed: (repoPath: string) => invoke<CommitInfo[]>('git:unpushed', repoPath),
   branches: (repoPath: string) => invoke<BranchInfo[]>('git:branches', repoPath),
   checkout: (repoPath: string, branch: string) => invoke<void>('git:checkout', repoPath, branch),
   log: (repoPath: string, limit?: number, skip?: number) => invoke<CommitInfo[]>('git:log', repoPath, limit, skip),

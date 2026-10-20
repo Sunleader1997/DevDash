@@ -15,6 +15,8 @@ const invoke = (channel: string, ...args: unknown[]): Promise<unknown> => {
     'git:list-files',
     'git:add',
     'git:commit',
+    'git:push',
+    'git:unpushed',
     'git:branches',
     'git:checkout',
     'git:log',
