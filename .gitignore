@@ -1,3 +1,10 @@
 /.idea/
 /node_modules/
 /out/
+# plugin build outputs — regenerate with `npm run build:plugins`
+plugins/*/dist/
+*.log
+dev-err.txt
+dev-out.txt
+electron-err.txt
+electron-out.txt

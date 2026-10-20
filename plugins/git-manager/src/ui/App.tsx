@@ -1837,7 +1837,8 @@ function FileTree({
   onSelect,
   showStatusLabel,
   defaultOpen,
-  onAdd
+  onAdd,
+  onIgnore
 }: {
   files: string[]
   statusByPath: Map<string, StatusEntry['status']>
@@ -1854,6 +1855,14 @@ function FileTree({
   const [menu, setMenu] = useState<{ path: string; x: number; y: number; isDir: boolean } | null>(null)
   const canAdd = (st?: StatusEntry['status']) =>
     st === 'untracked' || st === 'not-added' || st === 'deleted'
+  const dirHasAddable = (dir: TreeDir, dirSt?: StatusEntry['status']): boolean => {
+    if (canAdd(dirSt)) return true
+    const walk = (d: TreeDir): boolean => {
+      if (d.files.some((f) => canAdd(statusByPath.get(f)))) return true
+      return d.dirs.some(walk)
+    }
+    return walk(dir)
+  }
 
   const renderDir = (dir: TreeDir, depth: number, isRoot = false): JSX.Element => {
     const open = isRoot ? true : (expanded[dir.path] ?? defaultOpen ?? false)
@@ -1894,7 +1903,7 @@ function FileTree({
               >
                 {dir.name}
               </span>
-              {onAdd && canAdd(dirSt) && (
+              {onAdd && dirHasAddable(dir, dirSt) && (
                 <button
                   className="gm-row-add"
                   title="git add"
@@ -1966,7 +1975,7 @@ function FileTree({
   return (
     <div className="gm-file-tree">
       {renderDir(tree, 0, true)}
-      {menu && (
+      {menu && onIgnore && (
         <>
           <div
             className="gm-menu-backdrop"
@@ -1980,17 +1989,15 @@ function FileTree({
             className="gm-dropdown gm-context-menu"
             style={{ left: menu.x, top: menu.y, minWidth: 120 }}
           >
-            {onIgnore && (
-              <MenuItem
-                icon={<IconMenuIgnore />}
-                onClick={() => {
-                  onIgnore(menu.path)
-                  setMenu(null)
-                }}
-              >
-                忽略
-              </MenuItem>
-            )}
+            <MenuItem
+              icon={<IconMenuIgnore />}
+              onClick={() => {
+                onIgnore(menu.path)
+                setMenu(null)
+              }}
+            >
+              忽略
+            </MenuItem>
           </div>
         </>
       )}

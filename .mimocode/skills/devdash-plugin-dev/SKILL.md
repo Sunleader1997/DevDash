@@ -88,6 +88,8 @@ DevDash/
 
 ## 构建与验证
 
+- `plugins/*/dist` **不提交 git**；clone / CI 后必须先 `npm install` 或 `npm run build:plugins`，否则宿主加载 `dist/ui.js` 失败。
+
 ```bash
 npm run typecheck
 npm run build:plugins
