@@ -4,6 +4,8 @@ const invoke = (channel: string, ...args: unknown[]): Promise<unknown> => {
   const allowed = new Set([
     'plugin:list',
     'fs:pick-directory',
+    'shell:open-path',
+    'shell:show-in-folder',
     'fs:read-text-file',
     'fs:probe-file',
     'settings:get',
@@ -14,6 +16,7 @@ const invoke = (channel: string, ...args: unknown[]): Promise<unknown> => {
     'git:status',
     'git:list-files',
     'git:add',
+    'git:ignore',
     'git:commit',
     'git:push',
     'git:pull',

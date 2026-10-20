@@ -78,6 +78,21 @@ function IconPlus(): JSX.Element {
   )
 }
 
+function IconGear(): JSX.Element {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden>
+      <path
+        d="M8 2.2a1.2 1.2 0 0 1 1.2 1.2v.35c.3.1.58.24.83.42l.28-.2a1.2 1.2 0 0 1 1.7 1.7l-.2.28c.18.25.32.53.42.83h.35a1.2 1.2 0 0 1 0 2.4h-.35c-.1.3-.24.58-.42.83l.2.28a1.2 1.2 0 0 1-1.7 1.7l-.28-.2c-.25.18-.53.32-.83.42v.35a1.2 1.2 0 0 1-2.4 0v-.35c-.3-.1-.58-.24-.83-.42l-.28.2a1.2 1.2 0 0 1-1.7-1.7l.2-.28a3.8 3.8 0 0 1-.42-.83H2.2a1.2 1.2 0 0 1 0-2.4h.35c.1-.3.24-.58.42-.83l-.2-.28a1.2 1.2 0 0 1 1.7-1.7l.28.2c.25-.18.53-.32.83-.42V3.4A1.2 1.2 0 0 1 8 2.2z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinejoin="round"
+      />
+      <circle cx="8" cy="8" r="1.7" fill="none" stroke="currentColor" strokeWidth="1.1" />
+    </svg>
+  )
+}
+
 function IconMr(): JSX.Element {
   return (
     <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden>
@@ -135,7 +150,7 @@ function IconChevron({ open }: { open: boolean }): JSX.Element {
 
 function IconFolder({ open }: { open?: boolean }): JSX.Element {
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden>
+    <svg width="18" height="18" viewBox="0 0 16 16" aria-hidden>
       {open ? (
         <path
           d="M2 4.5h4l1.2 1.2H14v6.3H2V4.5z"
@@ -165,6 +180,66 @@ function IconFile(): JSX.Element {
       />
       <path d="M9 2v3h3" fill="none" stroke="currentColor" strokeWidth="1.2" />
     </svg>
+  )
+}
+
+function IconMenuRename(): JSX.Element {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden>
+      <path d="M3 12.5l1-3.2L10.2 3l2.8 2.8L6.2 12l-3.2 1z" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function IconMenuPin(): JSX.Element {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden>
+      <path d="M6 2h4v4l2 2v1H8v5l-.8 1.5h-.4L6 14V9H4V8l2-2V2z" fill="none" stroke="currentColor" strokeWidth="1.15" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function IconMenuFolder(): JSX.Element {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden>
+      <path d="M2 4h4l1.2 1.2H14v7.3H2V4z" fill="currentColor" opacity="0.2" stroke="currentColor" strokeWidth="1.1" />
+    </svg>
+  )
+}
+
+function IconMenuTrash(): JSX.Element {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden>
+      <path d="M4 5h8l-.7 9H4.7L4 5zM6 5V3h4v2M3 5h10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function IconMenuIgnore(): JSX.Element {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden>
+      <circle cx="8" cy="8" r="5.2" fill="none" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M4.5 11.5l7-7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function MenuItem({
+  icon,
+  danger,
+  onClick,
+  children
+}: {
+  icon: JSX.Element
+  danger?: boolean
+  onClick: () => void
+  children: React.ReactNode
+}): JSX.Element {
+  return (
+    <button className={cx(danger && 'gm-menu-danger', 'gm-menu-item')} onClick={onClick}>
+      <span className="gm-menu-icon">{icon}</span>
+      <span>{children}</span>
+    </button>
   )
 }
 
@@ -239,8 +314,13 @@ function GitManagerApp(): JSX.Element {
   ensurePluginStyle()
 
   const [projects, setProjects] = useState<ProjectRecord[]>(() => loadProjects())
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
-  const [reposByProject, setReposByProject] = useState<Record<string, string[]>>({})
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
+    const all: Record<string, boolean> = {}
+    for (const p of loadProjects()) all[p.id] = true
+    return all
+  })
+  const [reposByProject, setReposByProject] = useState<Record<string, RepoInfo[]>>({})
+  const [repoListCache, setRepoListCache] = useState<Record<string, string[]>>({})
   const [activeRepo, setActiveRepo] = useState<RepoInfo | null>(null)
   const [activeProject, setActiveProject] = useState<ProjectRecord | null>(null)
   const [toast, setToast] = useState<{ text: string; error?: boolean } | null>(null)
@@ -248,6 +328,7 @@ function GitManagerApp(): JSX.Element {
   const [projMenu, setProjMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
+  const [globalSettingsOpen, setGlobalSettingsOpen] = useState(false)
 
   const showToast = useCallback((text: string, error?: boolean) => {
     setToast({ text, error })
@@ -256,6 +337,15 @@ function GitManagerApp(): JSX.Element {
 
   useEffect(() => {
     saveProjects(projects)
+  }, [projects])
+
+  // Auto-expand & scan all projects on mount
+  useEffect(() => {
+    for (const p of projects) {
+      setExpanded((prev) => (prev[p.id] ? prev : { ...prev, [p.id]: true }))
+      if (!reposByProject[p.id]) void scanProject(p)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projects])
 
   const addProject = async () => {
@@ -268,9 +358,9 @@ function GitManagerApp(): JSX.Element {
     const rec: ProjectRecord = {
       id: `${dir}`,
       name: dir.replace(/\\/g, '/').split('/').filter(Boolean).pop() || dir,
-      path: dir
+      path: dir,
+      pinned: false
     }
-    // Create .devDash + gitignore on add
     void api.tasks('project-init', `初始化 ${rec.name}`, async () => {
       await api.storeRead(rec.path)
       return true
@@ -282,10 +372,20 @@ function GitManagerApp(): JSX.Element {
 
   const scanProject = async (project: ProjectRecord) => {
     try {
-      const repos = await api.tasks(`scan-${project.id}`, `扫描 ${project.name}`, () =>
+      const paths = await api.tasks(`scan-${project.id}`, `扫描 ${project.name}`, () =>
         api.findRepos(project.path, 3)
       )
-      setReposByProject((prev) => ({ ...prev, [project.id]: repos }))
+      setRepoListCache((prev) => ({ ...prev, [project.id]: paths }))
+      const infos = await Promise.all(
+        paths.map(async (r) => {
+          try {
+            return await api.repoInfo(r)
+          } catch {
+            return { path: r, name: r.replace(/\\/g, '/').split('/').pop() ?? r, branch: null, dirtyCount: 0 }
+          }
+        })
+      )
+      setReposByProject((prev) => ({ ...prev, [project.id]: infos }))
     } catch (e) {
       showToast((e as Error).message, true)
     }
@@ -347,7 +447,7 @@ function GitManagerApp(): JSX.Element {
       <aside className="gm-side">
         <div className="gm-side-header">
           <div className="gm-side-title">项目</div>
-          <button className="gm-btn icon" title="添加项目" aria-label="添加项目" onClick={() => void addProject()}>
+          <button className="gm-btn icon bare" title="添加项目" aria-label="添加项目" onClick={() => void addProject()}>
             <IconPlus />
           </button>
         </div>
@@ -381,7 +481,7 @@ function GitManagerApp(): JSX.Element {
                       if (!repos) void scanProject(p)
                     }}
                   >
-                    <span className="gm-chevron">{open ? '▾' : '▸'}</span>
+                    <IconFolder open={!!open} />
                     {renamingId === p.id ? (
                       <input
                         autoFocus
@@ -421,13 +521,14 @@ function GitManagerApp(): JSX.Element {
                     )}
                     {repos?.map((r) => (
                       <button
-                        key={r}
-                        className={cx('gm-row', activeRepo?.path === r && 'active')}
-                        onClick={() => void openRepo(p, r)}
-                        title={r}
+                        key={r.path}
+                        className={cx('gm-row', activeRepo?.path === r.path && 'active')}
+                        onClick={() => void openRepo(p, r.path)}
+                        title={r.path}
                       >
                         <span className="gm-chevron">·</span>
-                        <span>{r.replace(/\\/g, '/').split('/').pop()}</span>
+                        <span>{r.name}</span>
+                        {r.branch && <span className="gm-repo-branch">{r.branch}</span>}
                       </button>
                     ))}
                   </div>
@@ -441,6 +542,17 @@ function GitManagerApp(): JSX.Element {
             </div>
           )}
         </div>
+        <div className="gm-side-footer">
+          <button
+            className="gm-row gm-side-footer-btn"
+            title="全局设置"
+            aria-label="全局设置"
+            onClick={() => setGlobalSettingsOpen(true)}
+          >
+            <IconGear />
+            <span>全局设置</span>
+          </button>
+        </div>
       </aside>
 
       <Splitter
@@ -448,7 +560,12 @@ function GitManagerApp(): JSX.Element {
       />
 
       <section className="gm-main">
-        {activeRepo ? (
+        {globalSettingsOpen ? (
+          <GlobalSettingsPanel
+            onClose={() => setGlobalSettingsOpen(false)}
+            onToast={showToast}
+          />
+        ) : activeRepo ? (
           <RepoWorkspace
             repo={activeRepo}
             project={activeProject}
@@ -477,23 +594,169 @@ function GitManagerApp(): JSX.Element {
           />
           <div
             className="gm-dropdown gm-context-menu"
-            style={{ left: projMenu.x, top: projMenu.y, minWidth: 140 }}
+            style={{ left: projMenu.x, top: projMenu.y, minWidth: 180 }}
           >
-            <button onClick={() => startRename(projMenu.id)}>重命名</button>
-            <button onClick={() => pinProject(projMenu.id)}>置顶</button>
-            <button
+            <MenuItem icon={<IconMenuRename />} onClick={() => startRename(projMenu.id)}>
+              重命名
+            </MenuItem>
+            <MenuItem icon={<IconMenuPin />} onClick={() => pinProject(projMenu.id)}>
+              置顶
+            </MenuItem>
+            <MenuItem
+              icon={<IconMenuFolder />}
+              onClick={() => {
+                const p = projects.find((x) => x.id === projMenu.id)
+                if (p) void api.openPath(p.path).catch((e: Error) => showToast(e.message, true))
+                setProjMenu(null)
+              }}
+            >
+              在文件管理器中打开
+            </MenuItem>
+            <MenuItem
+              icon={<IconMenuTrash />}
+              danger
               onClick={() => {
                 removeProject(projMenu.id)
                 setProjMenu(null)
               }}
             >
               移除
-            </button>
+            </MenuItem>
           </div>
         </>
       )}
 
       {toast && <div className={`toast${toast.error ? ' error' : ''}`}>{toast.text}</div>}
+    </div>
+  )
+}
+
+/** Global (plugin-wide) open policy: whitelist + max file size. */
+function GlobalSettingsPanel({
+  onClose,
+  onToast
+}: {
+  onClose: () => void
+  onToast: (t: string, e?: boolean) => void
+}): JSX.Element {
+  const [whitelist, setWhitelist] = useState<string[]>([])
+  const [defaults, setDefaults] = useState<string[]>([])
+  const [maxMb, setMaxMb] = useState(10)
+  const [draftExt, setDraftExt] = useState('')
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const s = await api.settingsGet()
+        setWhitelist(s.textWhitelist)
+        setDefaults(s.defaultWhitelist)
+        setMaxMb(s.maxFileSizeMb)
+      } catch (e) {
+        onToast((e as Error).message, true)
+      }
+    })()
+  }, [])
+
+  const save = async () => {
+    try {
+      await api.settingsSave({
+        textWhitelist: whitelist,
+        maxFileSizeMb: Math.max(1, Math.min(200, maxMb))
+      })
+      onToast('全局设置已保存')
+      onClose()
+    } catch (e) {
+      onToast((e as Error).message, true)
+    }
+  }
+
+  return (
+    <div className="gm-settings-page">
+      <div className="gm-settings-card">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <h2>全局设置</h2>
+          <button className="gm-btn ghost" title="关闭" onClick={onClose}>
+            <IconClose />
+          </button>
+        </div>
+        <p className="gm-settings-desc">文件直接打开白名单与大小上限（对所有仓库生效）。</p>
+        <div className="gm-field">
+          <label>文本直接打开白名单（扩展名 / 文件名）</label>
+          <div className="gm-chips" style={{ marginBottom: 8 }}>
+            {whitelist.map((e) => (
+              <button
+                key={e}
+                type="button"
+                className="gm-chip on"
+                title="点击移除"
+                onClick={() => setWhitelist((prev) => prev.filter((x) => x !== e))}
+              >
+                {e} ×
+              </button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              value={draftExt}
+              placeholder="添加扩展名，如 jsonc"
+              onChange={(e) => setDraftExt(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e as { key?: string }).key === 'Enter') {
+                  const v = draftExt.trim().replace(/^\./, '').toLowerCase()
+                  if (v && !whitelist.includes(v)) setWhitelist((p) => [...p, v])
+                  setDraftExt('')
+                }
+              }}
+            />
+            <button
+              className="gm-btn"
+              onClick={() => {
+                const v = draftExt.trim().replace(/^\./, '').toLowerCase()
+                if (v && !whitelist.includes(v)) setWhitelist((p) => [...p, v])
+                setDraftExt('')
+              }}
+            >
+              添加
+            </button>
+          </div>
+        </div>
+        <div className="gm-field">
+          <label>预置</label>
+          <div className="gm-chips">
+            <button type="button" className="gm-chip" onClick={() => setWhitelist([...defaults])}>
+              重置为预置
+            </button>
+            <button
+              type="button"
+              className="gm-chip"
+              onClick={() => setWhitelist((prev) => [...new Set([...prev, ...defaults])])}
+            >
+              合并预置
+            </button>
+          </div>
+        </div>
+        <div className="gm-field">
+          <label>最大直接打开文件大小（MB）</label>
+          <input
+            type="number"
+            min={1}
+            max={200}
+            value={maxMb}
+            onChange={(e) => setMaxMb(Number(e.target.value) || 10)}
+          />
+          <div style={{ color: 'var(--fg-secondary)', fontSize: 11, marginTop: 4 }}>
+            超过此大小会提示确认，可强制以文本打开。默认 10 MB。
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <button className="gm-btn primary" onClick={() => void save()}>
+            保存
+          </button>
+          <button className="gm-btn" onClick={onClose}>
+            返回
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -696,7 +959,7 @@ function RepoWorkspace({
     }
   }
 
-  const openFile = async (filePath: string, silent = false): Promise<void> => {
+  const openFile = async (filePath: string, silent = false, force = false) => {
     setSelectedFile(filePath)
     try {
       const openedFile = await api.tasks(`open-${filePath}`, `打开 ${filePath.split('/').pop()}`, async () => {
@@ -712,45 +975,47 @@ function RepoWorkspace({
             block: { kind: 'error' as const, message: '文件不存在或不可读' }
           }
         }
-        if (probe.binary) {
-          return {
-            path: filePath,
-            label: filePath.split('/').pop() ?? filePath,
-            status: st,
-            patch: '',
-            block: {
-              kind: 'binary' as const,
-              size: probe.size,
-              message: '检测到二进制内容',
-              ext: probe.ext
+        if (!force) {
+          if (probe.binary) {
+            return {
+              path: filePath,
+              label: filePath.split('/').pop() ?? filePath,
+              status: st,
+              patch: '',
+              block: {
+                kind: 'binary' as const,
+                size: probe.size,
+                message: '检测到二进制内容',
+                ext: probe.ext
+              }
             }
           }
-        }
-        if (!probe.whitelisted) {
-          return {
-            path: filePath,
-            label: filePath.split('/').pop() ?? filePath,
-            status: st,
-            patch: '',
-            block: {
-              kind: 'whitelist' as const,
-              size: probe.size,
-              ext: probe.ext,
-              message: '不在文本打开白名单中'
+          if (!probe.whitelisted) {
+            return {
+              path: filePath,
+              label: filePath.split('/').pop() ?? filePath,
+              status: st,
+              patch: '',
+              block: {
+                kind: 'whitelist' as const,
+                size: probe.size,
+                ext: probe.ext,
+                message: '不在文本打开白名单中'
+              }
             }
           }
-        }
-        if (probe.tooLarge) {
-          return {
-            path: filePath,
-            label: filePath.split('/').pop() ?? filePath,
-            status: st,
-            patch: '',
-            block: {
-              kind: 'size' as const,
-              size: probe.size,
-              message: `超过 ${probe.maxFileSizeMb} MB 限制`,
-              ext: probe.ext
+          if (probe.tooLarge) {
+            return {
+              path: filePath,
+              label: filePath.split('/').pop() ?? filePath,
+              status: st,
+              patch: '',
+              block: {
+                kind: 'size' as const,
+                size: probe.size,
+                message: `超过 ${probe.maxFileSizeMb} MB 限制`,
+                ext: probe.ext
+              }
             }
           }
         }
@@ -778,10 +1043,14 @@ function RepoWorkspace({
     if (!opened) return
     const filePath = opened.path
     if (addToWhitelist) {
-      const ext = filePath.includes('.') ? (filePath.split('.').pop() || '') : ''
+      // Prefer extension; for dotfiles use full basename (gitignore / .gitignore)
+      const base = filePath.split('/').pop() ?? filePath
+      const ext = base.includes('.') && !base.startsWith('.') ? (base.split('.').pop() || '') : base.replace(/^\./, '')
       if (ext) await api.settingsAddExt(ext)
     }
-    await api.tasks(`force-${filePath}`, `强制打开 ${opened.label}`, () => openFile(filePath))
+    await api.tasks(`force-${filePath}`, `强制打开 ${opened.label}`, () =>
+      openFile(filePath, false, true)
+    )
   }
 
 
@@ -1081,6 +1350,18 @@ function RepoWorkspace({
                         })
                         .catch((e: Error) => onToast(e.message, true))
                     }}
+                    onIgnore={(p) => {
+                      void (async () => {
+                        try {
+                          await api.ignorePaths(repo.path, [p])
+                          onToast(`已忽略 ${p}`)
+                        } catch (e) {
+                          onToast((e as Error).message, true)
+                        } finally {
+                          await refreshStatus()
+                        }
+                      })()
+                    }}
                   />
                 </div>
               )}
@@ -1351,19 +1632,24 @@ function ToolSettingsPage({
 }: {
   onToast: (t: string, e?: boolean) => void
 }): JSX.Element {
-  const [whitelist, setWhitelist] = useState<string[]>([])
-  const [defaults, setDefaults] = useState<string[]>([])
-  const [maxMb, setMaxMb] = useState(10)
-  const [draftExt, setDraftExt] = useState('')
   const [saved, setSaved] = useState(false)
+  const [gl, setGl] = useState<GitLabSettings>({ baseUrl: '', token: '', projectPath: '' })
+  const [members, setMembers] = useState<GitLabMember[]>([])
+  const [assignees, setAssignees] = useState<number[]>([])
+  const [reviewers, setReviewers] = useState<number[]>([])
 
   useEffect(() => {
     void (async () => {
       try {
-        const s = await api.settingsGet()
-        setWhitelist(s.textWhitelist)
-        setDefaults(s.defaultWhitelist)
-        setMaxMb(s.maxFileSizeMb)
+        const g = await api.gitlabSettings()
+        setGl(g)
+        if (g.baseUrl && g.token && g.projectPath) {
+          try {
+            setMembers(await api.gitlabMembers(g))
+          } catch {
+            setMembers([])
+          }
+        }
       } catch (e) {
         onToast((e as Error).message, true)
       }
@@ -1372,103 +1658,91 @@ function ToolSettingsPage({
 
   const save = async () => {
     try {
-      await api.settingsSave({
-        textWhitelist: whitelist,
-        maxFileSizeMb: Math.max(1, Math.min(200, maxMb))
-      })
+      await api.saveGitlabSettings(gl)
       setSaved(true)
       window.setTimeout(() => setSaved(false), 2000)
-      onToast('设置已保存')
+      onToast('GitLab 配置已保存')
     } catch (e) {
       onToast((e as Error).message, true)
     }
   }
 
-  const addExt = () => {
-    const e = draftExt.trim().replace(/^\./, '').toLowerCase()
-    if (!e || whitelist.includes(e)) return
-    setWhitelist((prev) => [...prev, e])
-    setDraftExt('')
-  }
-
   return (
     <div className="gm-settings-page">
       <div className="gm-settings-card">
-        <h2>Git 工具设置</h2>
-        <p className="gm-settings-desc">配置文本直接打开策略；超限或非白名单文件可强制以文本打开。</p>
+        <h2>GitLab 配置</h2>
+        <p className="gm-settings-desc">用于一键 MR 与成员选择。文件打开策略请用左下角「全局设置」。</p>
 
         <div className="gm-field">
-          <label>文本直接打开白名单（扩展名 / 文件名）</label>
-          <div className="gm-chips" style={{ marginBottom: 8 }}>
-            {whitelist.map((e) => (
+          <label>baseUrl</label>
+          <input
+            value={gl.baseUrl}
+            onChange={(e) => setGl((s) => ({ ...s, baseUrl: e.target.value }))}
+            placeholder="https://gitlab.com"
+          />
+        </div>
+        <div className="gm-field">
+          <label>token</label>
+          <input
+            type="password"
+            value={gl.token}
+            onChange={(e) => setGl((s) => ({ ...s, token: e.target.value }))}
+            placeholder="personal access token"
+          />
+        </div>
+        <div className="gm-field">
+          <label>projectPath</label>
+          <input
+            value={gl.projectPath}
+            onChange={(e) => setGl((s) => ({ ...s, projectPath: e.target.value }))}
+            placeholder="group/repo"
+          />
+        </div>
+        <div className="gm-field">
+          <label>Assignee</label>
+          <div className="gm-chips">
+            {members.length === 0 && (
+              <span style={{ color: 'var(--fg-secondary)', fontSize: 12 }}>保存后可拉取成员</span>
+            )}
+            {members.map((m) => (
               <button
-                key={e}
+                key={m.id}
                 type="button"
-                className="gm-chip on"
-                title="点击移除"
-                onClick={() => setWhitelist((prev) => prev.filter((x) => x !== e))}
+                className={cx('gm-chip', assignees.includes(m.id) && 'on')}
+                onClick={() =>
+                  setAssignees((prev) =>
+                    prev.includes(m.id) ? prev.filter((x) => x !== m.id) : [...prev, m.id]
+                  )
+                }
               >
-                {e} ×
+                {m.name || m.username}
               </button>
             ))}
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              value={draftExt}
-              placeholder="添加扩展名，如 jsonc"
-              onChange={(e) => setDraftExt(e.target.value)}
-              onKeyDown={(e) => {
-                if ((e as { key?: string }).key === 'Enter') addExt()
-              }}
-            />
-            <button className="gm-btn" onClick={addExt}>
-              添加
-            </button>
-          </div>
         </div>
-
         <div className="gm-field">
-          <label>预置样式</label>
+          <label>Reviewer</label>
           <div className="gm-chips">
-            <button type="button" className="gm-chip" onClick={() => setWhitelist([...defaults])}>
-              重置为预置
-            </button>
-            <button
-              type="button"
-              className="gm-chip"
-              onClick={() => setWhitelist((prev) => [...new Set([...prev, ...defaults])])}
-            >
-              合并预置
-            </button>
-          </div>
-        </div>
-
-        <div className="gm-field">
-          <label>最大直接打开文件大小（MB）</label>
-          <input
-            type="number"
-            min={1}
-            max={200}
-            value={maxMb}
-            onChange={(e) => setMaxMb(Number(e.target.value) || 10)}
-          />
-          <div style={{ color: 'var(--fg-secondary)', fontSize: 11, marginTop: 4 }}>
-            超过此大小会提示确认，可强制以文本打开。默认 10 MB。
+            {members.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                className={cx('gm-chip', reviewers.includes(m.id) && 'on')}
+                onClick={() =>
+                  setReviewers((prev) =>
+                    prev.includes(m.id) ? prev.filter((x) => x !== m.id) : [...prev, m.id]
+                  )
+                }
+              >
+                {m.name || m.username}
+              </button>
+            ))}
           </div>
         </div>
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
-          <button className="gm-btn primary" title="保存设置" onClick={() => void save()}>
-            <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden>
-              <path
-                d="M3 3h8l2 2v8H3V3z"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.3"
-              />
-              <path d="M5 3v4h6V3M5 13v-4h6v4" fill="none" stroke="currentColor" strokeWidth="1.3" />
-            </svg>
-            <span>保存</span>
+          <button className="gm-btn primary" onClick={() => void save()}>
+            保存
           </button>
           {saved && <span style={{ color: 'var(--success)', fontSize: 12 }}>OK</span>}
         </div>
@@ -1476,7 +1750,6 @@ function ToolSettingsPage({
     </div>
   )
 }
-
 function mapDiffStatus(f: DiffFileInfo): StatusEntry['status'] {
   if (f.patch.includes('new file')) return 'added'
   if (f.patch.includes('deleted file')) return 'deleted'
@@ -1575,8 +1848,10 @@ function FileTree({
   showStatusLabel?: boolean
   defaultOpen?: boolean
   onAdd?: (path: string) => void
+  onIgnore?: (path: string) => void
 }): JSX.Element {
   const tree = useMemo(() => buildTree(files), [files])
+  const [menu, setMenu] = useState<{ path: string; x: number; y: number; isDir: boolean } | null>(null)
   const canAdd = (st?: StatusEntry['status']) =>
     st === 'untracked' || st === 'not-added' || st === 'deleted'
 
@@ -1595,6 +1870,16 @@ function FileTree({
               )}
               style={{ paddingLeft: pad }}
               onClick={() => onToggleDir(dir.path)}
+              onContextMenu={(e) => {
+                e.preventDefault?.()
+                e.stopPropagation?.()
+                setMenu({
+                  path: dir.path,
+                  x: (e as { clientX?: number }).clientX ?? 0,
+                  y: (e as { clientY?: number }).clientY ?? 0,
+                  isDir: true
+                })
+              }}
               title={dir.path}
             >
               <span className="gm-tree-gutter">
@@ -1636,6 +1921,16 @@ function FileTree({
                   className={cx('gm-file-row', selected === f && 'active')}
                   style={{ paddingLeft: pad + (dir.name ? 14 : 0) }}
                   onClick={() => onSelect(f)}
+                  onContextMenu={(e) => {
+                    e.preventDefault?.()
+                    e.stopPropagation?.()
+                    setMenu({
+                      path: f,
+                      x: (e as { clientX?: number }).clientX ?? 0,
+                      y: (e as { clientY?: number }).clientY ?? 0,
+                      isDir: false
+                    })
+                  }}
                   title={f}
                 >
                   <span className="gm-tree-gutter" aria-hidden>
@@ -1668,7 +1963,39 @@ function FileTree({
   }
 
   if (files.length === 0) return <div className="gm-empty">暂无文件</div>
-  return <div className="gm-file-tree">{renderDir(tree, 0, true)}</div>
+  return (
+    <div className="gm-file-tree">
+      {renderDir(tree, 0, true)}
+      {menu && (
+        <>
+          <div
+            className="gm-menu-backdrop"
+            onClick={() => setMenu(null)}
+            onContextMenu={(e) => {
+              e.preventDefault?.()
+              setMenu(null)
+            }}
+          />
+          <div
+            className="gm-dropdown gm-context-menu"
+            style={{ left: menu.x, top: menu.y, minWidth: 120 }}
+          >
+            {onIgnore && (
+              <MenuItem
+                icon={<IconMenuIgnore />}
+                onClick={() => {
+                  onIgnore(menu.path)
+                  setMenu(null)
+                }}
+              >
+                忽略
+              </MenuItem>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
 }
 
 function statusLabel(s: StatusEntry['status']): string {
@@ -1785,7 +2112,6 @@ function MrPanel({
   const [assignees, setAssignees] = useState<number[]>([])
   const [reviewers, setReviewers] = useState<number[]>([])
   const [submitting, setSubmitting] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
 
   useEffect(() => {
     void (async () => {
@@ -1850,8 +2176,7 @@ function MrPanel({
       await persistCache()
       const s = settings
       if (!s.baseUrl || !s.token || !s.projectPath) {
-        setShowSettings(true)
-        onToast('请先配置 GitLab 连接信息', true)
+        onToast('请先在「设置」中配置 GitLab 连接', true)
         return
       }
       const created = await api.tasks('create-mr', '创建 MR', () =>
@@ -1947,49 +2272,8 @@ function MrPanel({
               ))}
             </div>
           </div>
-
-          {showSettings && (
-            <div className="gm-field" style={{ borderTop: '1px solid var(--separator)', paddingTop: 12 }}>
-              <label>GitLab 配置</label>
-              <input
-                placeholder="baseUrl  https://gitlab.com"
-                value={settings.baseUrl}
-                onChange={(e) => setSettings((s) => ({ ...s, baseUrl: e.target.value }))}
-                style={{ marginBottom: 8 }}
-              />
-              <input
-                placeholder="token"
-                value={settings.token}
-                onChange={(e) => setSettings((s) => ({ ...s, token: e.target.value }))}
-                style={{ marginBottom: 8 }}
-              />
-              <input
-                placeholder="projectPath  group/repo"
-                value={settings.projectPath}
-                onChange={(e) => setSettings((s) => ({ ...s, projectPath: e.target.value }))}
-              />
-              <button
-                className="gm-btn"
-                style={{ marginTop: 8 }}
-                onClick={async () => {
-                  await api.saveGitlabSettings(settings)
-                  try {
-                    setMembers(await api.gitlabMembers(settings))
-                    onToast('GitLab 配置已保存')
-                  } catch (e) {
-                    onToast((e as Error).message, true)
-                  }
-                }}
-              >
-                保存并拉取成员
-              </button>
-            </div>
-          )}
         </div>
         <div className="gm-modal-footer">
-          <button className="gm-btn ghost" onClick={() => setShowSettings(true)}>
-            设置
-          </button>
           <button className="gm-btn" onClick={onClose}>
             取消
           </button>

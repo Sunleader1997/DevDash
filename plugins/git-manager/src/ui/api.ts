@@ -19,11 +19,14 @@ export function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
 
 export const api = {
   pickDirectory: () => invoke<string | null>('fs:pick-directory'),
+  openPath: (p: string) => invoke<void>('shell:open-path', p),
+  showInFolder: (p: string) => invoke<void>('shell:show-in-folder', p),
   findRepos: (root: string, maxDepth?: number) => invoke<string[]>('git:find-repos', root, maxDepth),
   repoInfo: (repoPath: string) => invoke<RepoInfo>('git:repo-info', repoPath),
   status: (repoPath: string) => invoke<StatusEntry[]>('git:status', repoPath),
   listFiles: (repoPath: string) => invoke<string[]>('git:list-files', repoPath),
   addPaths: (repoPath: string, paths: string[]) => invoke<void>('git:add', repoPath, paths),
+  ignorePaths: (repoPath: string, paths: string[]) => invoke<void>('git:ignore', repoPath, paths),
   commit: (repoPath: string, message: string, paths?: string[]) =>
     invoke<string>('git:commit', repoPath, message, paths),
   push: (repoPath: string, remote?: string, ref?: string) =>

@@ -1,4 +1,4 @@
-import { ipcMain, dialog, protocol, net, BrowserWindow } from 'electron'
+import { ipcMain, dialog, protocol, net, BrowserWindow, shell } from 'electron'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { gitService } from './git/gitService'
@@ -74,6 +74,14 @@ export function registerIpc(): void {
     return result.filePaths[0]
   })
 
+  ipcMain.handle('shell:open-path', async (_e, p: string) => {
+    await shell.openPath(p)
+  })
+
+  ipcMain.handle('shell:show-in-folder', async (_e, p: string) => {
+    shell.showItemInFolder(p)
+  })
+
   ipcMain.handle('settings:get', async () => {
     const s = await settingsStore.get()
     return { ...s, defaultWhitelist: DEFAULT_TEXT_WHITELIST }
@@ -89,6 +97,8 @@ export function registerIpc(): void {
     const settings = await settingsStore.get()
     const ext = path.extname(abs).replace(/^\./, '').toLowerCase()
     const base = path.basename(abs).toLowerCase()
+    // .gitignore → gitignore; also allow exact basename
+    const baseNoDot = base.replace(/^\./, '')
     let stat: import('node:fs').Stats
     try {
       stat = await fs.stat(abs)
@@ -117,7 +127,6 @@ export function registerIpc(): void {
       }
     }
     const maxBytes = settings.maxFileSizeMb * 1024 * 1024
-    // Detect binary via NUL in first 8KB
     let binary = false
     try {
       const fd = await fs.open(abs, 'r')
@@ -131,10 +140,15 @@ export function registerIpc(): void {
     } catch {
       binary = false
     }
+    const wl = settings.textWhitelist.map((s) => s.toLowerCase())
     const whitelisted =
-      settings.textWhitelist.includes(ext) ||
-      settings.textWhitelist.includes(base) ||
-      (base === 'dockerfile' || base.startsWith('dockerfile.'))
+      wl.includes(ext) ||
+      wl.includes(base) ||
+      wl.includes(baseNoDot) ||
+      base === 'dockerfile' ||
+      base.startsWith('dockerfile.') ||
+      baseNoDot === 'gitignore' ||
+      baseNoDot === 'gitattributes'
     return {
       path: abs,
       exists: true,
@@ -176,6 +190,7 @@ export function registerIpc(): void {
   ipcMain.handle('git:status', (_e, repoPath: string) => gitService.status(repoPath))
   ipcMain.handle('git:list-files', (_e, repoPath: string) => gitService.listFiles(repoPath))
   ipcMain.handle('git:add', (_e, repoPath: string, paths: string[]) => gitService.addPaths(repoPath, paths))
+  ipcMain.handle('git:ignore', (_e, repoPath: string, paths: string[]) => gitService.ignorePaths(repoPath, paths))
   ipcMain.handle('git:commit', (_e, repoPath: string, message: string, paths?: string[]) =>
     gitService.commit(repoPath, message, paths)
   )

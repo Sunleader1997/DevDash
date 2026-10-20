@@ -28,11 +28,14 @@ function invoke(channel, ...args) {
 }
 const api = {
   pickDirectory: () => invoke("fs:pick-directory"),
+  openPath: (p) => invoke("shell:open-path", p),
+  showInFolder: (p) => invoke("shell:show-in-folder", p),
   findRepos: (root, maxDepth) => invoke("git:find-repos", root, maxDepth),
   repoInfo: (repoPath) => invoke("git:repo-info", repoPath),
   status: (repoPath) => invoke("git:status", repoPath),
   listFiles: (repoPath) => invoke("git:list-files", repoPath),
   addPaths: (repoPath, paths) => invoke("git:add", repoPath, paths),
+  ignorePaths: (repoPath, paths) => invoke("git:ignore", repoPath, paths),
   commit: (repoPath, message, paths) => invoke("git:commit", repoPath, message, paths),
   push: (repoPath, remote, ref) => invoke("git:push", repoPath, remote, ref),
   pull: (repoPath, remote, branch) => invoke("git:pull", repoPath, remote, branch),
@@ -79,6 +82,24 @@ const pluginCss = `
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+.gm-side-footer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--separator);
+  padding: 6px 8px 10px;
+}
+.gm-side-footer-btn {
+  color: var(--fg-secondary);
+  font-size: 12px;
+  gap: 6px;
+  padding: 6px 8px;
+}
+.gm-side-footer-btn:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.gm-side-footer-btn svg {
+  flex-shrink: 0;
 }
 .gm-side-header {
   display: flex;
@@ -179,6 +200,14 @@ const pluginCss = `
 .gm-btn.icon {
   padding: 5px 8px;
 }
+.gm-btn.icon.bare {
+  background: transparent;
+  border-color: transparent;
+  padding: 4px;
+}
+.gm-btn.icon.bare:hover {
+  background: var(--bg-hover);
+}
 .gm-btn.icon.primary {
   padding: 5px 9px;
 }
@@ -238,6 +267,18 @@ const pluginCss = `
   justify-content: space-between;
   gap: 8px;
 }
+.gm-repo-branch {
+  margin-left: auto;
+  color: var(--fg-tertiary);
+  font-size: 11px;
+  font-weight: 400;
+  padding-left: 8px;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .gm-commit-panel {
   display: flex;
   flex-direction: column;
@@ -337,16 +378,19 @@ const pluginCss = `
 
 .gm-row-add {
   margin-left: auto;
-  padding: 2px 6px;
-  border-radius: 6px;
+  padding: 2px;
+  border-radius: 4px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--accent-soft);
+  background: transparent;
   color: var(--accent);
-  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border: none;
   opacity: 0;
   flex-shrink: 0;
+}
+.gm-row-add:hover {
+  background: var(--accent-soft);
 }
 .gm-file-row:hover .gm-row-add {
   opacity: 1;
@@ -761,6 +805,32 @@ const pluginCss = `
   top: calc(100% + 8px);
   z-index: 30;
 }
+.gm-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 8px;
+}
+.gm-menu-icon {
+  display: inline-flex;
+  width: 16px;
+  justify-content: center;
+  color: var(--fg-secondary);
+  flex-shrink: 0;
+}
+.gm-menu-danger .gm-menu-icon {
+  color: var(--danger, #ff453a);
+}
+.gm-menu-danger {
+  color: var(--danger, #ff453a) !important;
+}
+.gm-menu-danger:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent) !important;
+}
+
 .gm-context-menu {
   position: fixed;
   z-index: 200;
@@ -915,6 +985,21 @@ function formatBytes(n) {
 function IconPlus() {
   return /* @__PURE__ */ jsx("svg", { width: "14", height: "14", viewBox: "0 0 16 16", "aria-hidden": true, children: /* @__PURE__ */ jsx("path", { d: "M8 3v10M3 8h10", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round" }) });
 }
+function IconGear() {
+  return /* @__PURE__ */ jsxs("svg", { width: "15", height: "15", viewBox: "0 0 16 16", "aria-hidden": true, children: [
+    /* @__PURE__ */ jsx(
+      "path",
+      {
+        d: "M8 2.2a1.2 1.2 0 0 1 1.2 1.2v.35c.3.1.58.24.83.42l.28-.2a1.2 1.2 0 0 1 1.7 1.7l-.2.28c.18.25.32.53.42.83h.35a1.2 1.2 0 0 1 0 2.4h-.35c-.1.3-.24.58-.42.83l.2.28a1.2 1.2 0 0 1-1.7 1.7l-.28-.2c-.25.18-.53.32-.83.42v.35a1.2 1.2 0 0 1-2.4 0v-.35c-.3-.1-.58-.24-.83-.42l-.28.2a1.2 1.2 0 0 1-1.7-1.7l.2-.28a3.8 3.8 0 0 1-.42-.83H2.2a1.2 1.2 0 0 1 0-2.4h.35c.1-.3.24-.58.42-.83l-.2-.28a1.2 1.2 0 0 1 1.7-1.7l.28.2c.25-.18.53-.32.83-.42V3.4A1.2 1.2 0 0 1 8 2.2z",
+        fill: "none",
+        stroke: "currentColor",
+        strokeWidth: "1.1",
+        strokeLinejoin: "round"
+      }
+    ),
+    /* @__PURE__ */ jsx("circle", { cx: "8", cy: "8", r: "1.7", fill: "none", stroke: "currentColor", strokeWidth: "1.1" })
+  ] });
+}
 function IconMr() {
   return /* @__PURE__ */ jsxs("svg", { width: "15", height: "15", viewBox: "0 0 16 16", "aria-hidden": true, children: [
     /* @__PURE__ */ jsx("circle", { cx: "4.5", cy: "3.5", r: "1.5", fill: "currentColor" }),
@@ -938,6 +1023,9 @@ function IconCompare() {
     /* @__PURE__ */ jsx("rect", { x: "9", y: "3", width: "5", height: "10", rx: "1", stroke: "currentColor", strokeWidth: "1.2", fill: "none" })
   ] });
 }
+function IconClose() {
+  return /* @__PURE__ */ jsx("svg", { width: "12", height: "12", viewBox: "0 0 16 16", "aria-hidden": true, children: /* @__PURE__ */ jsx("path", { d: "M4 4l8 8M12 4l-8 8", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round" }) });
+}
 function IconChevron({ open }) {
   return /* @__PURE__ */ jsx(
     "svg",
@@ -953,7 +1041,7 @@ function IconChevron({ open }) {
   );
 }
 function IconFolder({ open }) {
-  return /* @__PURE__ */ jsx("svg", { width: "14", height: "14", viewBox: "0 0 16 16", "aria-hidden": true, children: open ? /* @__PURE__ */ jsx(
+  return /* @__PURE__ */ jsx("svg", { width: "18", height: "18", viewBox: "0 0 16 16", "aria-hidden": true, children: open ? /* @__PURE__ */ jsx(
     "path",
     {
       d: "M2 4.5h4l1.2 1.2H14v6.3H2V4.5z",
@@ -979,6 +1067,35 @@ function IconFile() {
       }
     ),
     /* @__PURE__ */ jsx("path", { d: "M9 2v3h3", fill: "none", stroke: "currentColor", strokeWidth: "1.2" })
+  ] });
+}
+function IconMenuRename() {
+  return /* @__PURE__ */ jsx("svg", { width: "14", height: "14", viewBox: "0 0 16 16", "aria-hidden": true, children: /* @__PURE__ */ jsx("path", { d: "M3 12.5l1-3.2L10.2 3l2.8 2.8L6.2 12l-3.2 1z", fill: "none", stroke: "currentColor", strokeWidth: "1.2", strokeLinejoin: "round" }) });
+}
+function IconMenuPin() {
+  return /* @__PURE__ */ jsx("svg", { width: "14", height: "14", viewBox: "0 0 16 16", "aria-hidden": true, children: /* @__PURE__ */ jsx("path", { d: "M6 2h4v4l2 2v1H8v5l-.8 1.5h-.4L6 14V9H4V8l2-2V2z", fill: "none", stroke: "currentColor", strokeWidth: "1.15", strokeLinejoin: "round" }) });
+}
+function IconMenuFolder() {
+  return /* @__PURE__ */ jsx("svg", { width: "14", height: "14", viewBox: "0 0 16 16", "aria-hidden": true, children: /* @__PURE__ */ jsx("path", { d: "M2 4h4l1.2 1.2H14v7.3H2V4z", fill: "currentColor", opacity: "0.2", stroke: "currentColor", strokeWidth: "1.1" }) });
+}
+function IconMenuTrash() {
+  return /* @__PURE__ */ jsx("svg", { width: "14", height: "14", viewBox: "0 0 16 16", "aria-hidden": true, children: /* @__PURE__ */ jsx("path", { d: "M4 5h8l-.7 9H4.7L4 5zM6 5V3h4v2M3 5h10", fill: "none", stroke: "currentColor", strokeWidth: "1.2", strokeLinecap: "round" }) });
+}
+function IconMenuIgnore() {
+  return /* @__PURE__ */ jsxs("svg", { width: "14", height: "14", viewBox: "0 0 16 16", "aria-hidden": true, children: [
+    /* @__PURE__ */ jsx("circle", { cx: "8", cy: "8", r: "5.2", fill: "none", stroke: "currentColor", strokeWidth: "1.3" }),
+    /* @__PURE__ */ jsx("path", { d: "M4.5 11.5l7-7", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round" })
+  ] });
+}
+function MenuItem({
+  icon,
+  danger,
+  onClick,
+  children
+}) {
+  return /* @__PURE__ */ jsxs("button", { className: cx(danger && "gm-menu-danger", "gm-menu-item"), onClick, children: [
+    /* @__PURE__ */ jsx("span", { className: "gm-menu-icon", children: icon }),
+    /* @__PURE__ */ jsx("span", { children })
   ] });
 }
 const DEFAULT_SIZES = {
@@ -1035,8 +1152,13 @@ function Splitter({
 function GitManagerApp() {
   ensurePluginStyle();
   const [projects, setProjects] = useState(() => loadProjects());
-  const [expanded, setExpanded] = useState({});
+  const [expanded, setExpanded] = useState(() => {
+    const all = {};
+    for (const p of loadProjects()) all[p.id] = true;
+    return all;
+  });
   const [reposByProject, setReposByProject] = useState({});
+  const [repoListCache, setRepoListCache] = useState({});
   const [activeRepo, setActiveRepo] = useState(null);
   const [activeProject, setActiveProject] = useState(null);
   const [toast, setToast] = useState(null);
@@ -1044,12 +1166,19 @@ function GitManagerApp() {
   const [projMenu, setProjMenu] = useState(null);
   const [renamingId, setRenamingId] = useState(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [globalSettingsOpen, setGlobalSettingsOpen] = useState(false);
   const showToast = useCallback((text, error) => {
     setToast({ text, error });
     window.setTimeout(() => setToast(null), 3200);
   }, []);
   useEffect(() => {
     saveProjects(projects);
+  }, [projects]);
+  useEffect(() => {
+    for (const p of projects) {
+      setExpanded((prev) => prev[p.id] ? prev : { ...prev, [p.id]: true });
+      if (!reposByProject[p.id]) void scanProject(p);
+    }
   }, [projects]);
   const addProject = async () => {
     const dir = await api.pickDirectory();
@@ -1061,7 +1190,8 @@ function GitManagerApp() {
     const rec = {
       id: `${dir}`,
       name: dir.replace(/\\/g, "/").split("/").filter(Boolean).pop() || dir,
-      path: dir
+      path: dir,
+      pinned: false
     };
     void api.tasks("project-init", `初始化 ${rec.name}`, async () => {
       await api.storeRead(rec.path);
@@ -1073,12 +1203,22 @@ function GitManagerApp() {
   };
   const scanProject = async (project) => {
     try {
-      const repos = await api.tasks(
+      const paths = await api.tasks(
         `scan-${project.id}`,
         `扫描 ${project.name}`,
         () => api.findRepos(project.path, 3)
       );
-      setReposByProject((prev) => ({ ...prev, [project.id]: repos }));
+      setRepoListCache((prev) => ({ ...prev, [project.id]: paths }));
+      const infos = await Promise.all(
+        paths.map(async (r) => {
+          try {
+            return await api.repoInfo(r);
+          } catch {
+            return { path: r, name: r.replace(/\\/g, "/").split("/").pop() ?? r, branch: null, dirtyCount: 0 };
+          }
+        })
+      );
+      setReposByProject((prev) => ({ ...prev, [project.id]: infos }));
     } catch (e) {
       showToast(e.message, true);
     }
@@ -1133,7 +1273,7 @@ function GitManagerApp() {
     /* @__PURE__ */ jsxs("aside", { className: "gm-side", children: [
       /* @__PURE__ */ jsxs("div", { className: "gm-side-header", children: [
         /* @__PURE__ */ jsx("div", { className: "gm-side-title", children: "项目" }),
-        /* @__PURE__ */ jsx("button", { className: "gm-btn icon", title: "添加项目", "aria-label": "添加项目", onClick: () => void addProject(), children: /* @__PURE__ */ jsx(IconPlus, {}) })
+        /* @__PURE__ */ jsx("button", { className: "gm-btn icon bare", title: "添加项目", "aria-label": "添加项目", onClick: () => void addProject(), children: /* @__PURE__ */ jsx(IconPlus, {}) })
       ] }),
       /* @__PURE__ */ jsxs("div", { className: "gm-tree", children: [
         [...projects].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned)).map((p) => {
@@ -1166,7 +1306,7 @@ function GitManagerApp() {
                       if (!repos) void scanProject(p);
                     },
                     children: [
-                      /* @__PURE__ */ jsx("span", { className: "gm-chevron", children: open ? "▾" : "▸" }),
+                      /* @__PURE__ */ jsx(IconFolder, { open: !!open }),
                       renamingId === p.id ? /* @__PURE__ */ jsx(
                         "input",
                         {
@@ -1207,21 +1347,35 @@ function GitManagerApp() {
               repos == null ? void 0 : repos.map((r) => /* @__PURE__ */ jsxs(
                 "button",
                 {
-                  className: cx("gm-row", (activeRepo == null ? void 0 : activeRepo.path) === r && "active"),
-                  onClick: () => void openRepo(p, r),
-                  title: r,
+                  className: cx("gm-row", (activeRepo == null ? void 0 : activeRepo.path) === r.path && "active"),
+                  onClick: () => void openRepo(p, r.path),
+                  title: r.path,
                   children: [
                     /* @__PURE__ */ jsx("span", { className: "gm-chevron", children: "·" }),
-                    /* @__PURE__ */ jsx("span", { children: r.replace(/\\/g, "/").split("/").pop() })
+                    /* @__PURE__ */ jsx("span", { children: r.name }),
+                    r.branch && /* @__PURE__ */ jsx("span", { className: "gm-repo-branch", children: r.branch })
                   ]
                 },
-                r
+                r.path
               ))
             ] })
           ] }, p.id);
         }),
         projects.length === 0 && /* @__PURE__ */ jsx("div", { style: { padding: 12, color: "var(--fg-secondary)" }, children: "选择目录以扫描 Git 仓库；配置写入 .devDash/。右键项目可重命名/置顶/移除。" })
-      ] })
+      ] }),
+      /* @__PURE__ */ jsx("div", { className: "gm-side-footer", children: /* @__PURE__ */ jsxs(
+        "button",
+        {
+          className: "gm-row gm-side-footer-btn",
+          title: "全局设置",
+          "aria-label": "全局设置",
+          onClick: () => setGlobalSettingsOpen(true),
+          children: [
+            /* @__PURE__ */ jsx(IconGear, {}),
+            /* @__PURE__ */ jsx("span", { children: "全局设置" })
+          ]
+        }
+      ) })
     ] }),
     /* @__PURE__ */ jsx(
       Splitter,
@@ -1229,7 +1383,13 @@ function GitManagerApp() {
         onDelta: (dx) => setSideWidth((w) => Math.min(420, Math.max(180, w + dx)))
       }
     ),
-    /* @__PURE__ */ jsx("section", { className: "gm-main", children: activeRepo ? /* @__PURE__ */ jsx(
+    /* @__PURE__ */ jsx("section", { className: "gm-main", children: globalSettingsOpen ? /* @__PURE__ */ jsx(
+      GlobalSettingsPanel,
+      {
+        onClose: () => setGlobalSettingsOpen(false),
+        onToast: showToast
+      }
+    ) : activeRepo ? /* @__PURE__ */ jsx(
       RepoWorkspace,
       {
         repo: activeRepo,
@@ -1258,13 +1418,27 @@ function GitManagerApp() {
         "div",
         {
           className: "gm-dropdown gm-context-menu",
-          style: { left: projMenu.x, top: projMenu.y, minWidth: 140 },
+          style: { left: projMenu.x, top: projMenu.y, minWidth: 180 },
           children: [
-            /* @__PURE__ */ jsx("button", { onClick: () => startRename(projMenu.id), children: "重命名" }),
-            /* @__PURE__ */ jsx("button", { onClick: () => pinProject(projMenu.id), children: "置顶" }),
+            /* @__PURE__ */ jsx(MenuItem, { icon: /* @__PURE__ */ jsx(IconMenuRename, {}), onClick: () => startRename(projMenu.id), children: "重命名" }),
+            /* @__PURE__ */ jsx(MenuItem, { icon: /* @__PURE__ */ jsx(IconMenuPin, {}), onClick: () => pinProject(projMenu.id), children: "置顶" }),
             /* @__PURE__ */ jsx(
-              "button",
+              MenuItem,
               {
+                icon: /* @__PURE__ */ jsx(IconMenuFolder, {}),
+                onClick: () => {
+                  const p = projects.find((x) => x.id === projMenu.id);
+                  if (p) void api.openPath(p.path).catch((e) => showToast(e.message, true));
+                  setProjMenu(null);
+                },
+                children: "在文件管理器中打开"
+              }
+            ),
+            /* @__PURE__ */ jsx(
+              MenuItem,
+              {
+                icon: /* @__PURE__ */ jsx(IconMenuTrash, {}),
+                danger: true,
                 onClick: () => {
                   removeProject(projMenu.id);
                   setProjMenu(null);
@@ -1278,6 +1452,125 @@ function GitManagerApp() {
     ] }),
     toast && /* @__PURE__ */ jsx("div", { className: `toast${toast.error ? " error" : ""}`, children: toast.text })
   ] });
+}
+function GlobalSettingsPanel({
+  onClose,
+  onToast
+}) {
+  const [whitelist, setWhitelist] = useState([]);
+  const [defaults, setDefaults] = useState([]);
+  const [maxMb, setMaxMb] = useState(10);
+  const [draftExt, setDraftExt] = useState("");
+  useEffect(() => {
+    void (async () => {
+      try {
+        const s = await api.settingsGet();
+        setWhitelist(s.textWhitelist);
+        setDefaults(s.defaultWhitelist);
+        setMaxMb(s.maxFileSizeMb);
+      } catch (e) {
+        onToast(e.message, true);
+      }
+    })();
+  }, []);
+  const save = async () => {
+    try {
+      await api.settingsSave({
+        textWhitelist: whitelist,
+        maxFileSizeMb: Math.max(1, Math.min(200, maxMb))
+      });
+      onToast("全局设置已保存");
+      onClose();
+    } catch (e) {
+      onToast(e.message, true);
+    }
+  };
+  return /* @__PURE__ */ jsx("div", { className: "gm-settings-page", children: /* @__PURE__ */ jsxs("div", { className: "gm-settings-card", children: [
+    /* @__PURE__ */ jsxs("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" }, children: [
+      /* @__PURE__ */ jsx("h2", { children: "全局设置" }),
+      /* @__PURE__ */ jsx("button", { className: "gm-btn ghost", title: "关闭", onClick: onClose, children: /* @__PURE__ */ jsx(IconClose, {}) })
+    ] }),
+    /* @__PURE__ */ jsx("p", { className: "gm-settings-desc", children: "文件直接打开白名单与大小上限（对所有仓库生效）。" }),
+    /* @__PURE__ */ jsxs("div", { className: "gm-field", children: [
+      /* @__PURE__ */ jsx("label", { children: "文本直接打开白名单（扩展名 / 文件名）" }),
+      /* @__PURE__ */ jsx("div", { className: "gm-chips", style: { marginBottom: 8 }, children: whitelist.map((e) => /* @__PURE__ */ jsxs(
+        "button",
+        {
+          type: "button",
+          className: "gm-chip on",
+          title: "点击移除",
+          onClick: () => setWhitelist((prev) => prev.filter((x) => x !== e)),
+          children: [
+            e,
+            " ×"
+          ]
+        },
+        e
+      )) }),
+      /* @__PURE__ */ jsxs("div", { style: { display: "flex", gap: 8 }, children: [
+        /* @__PURE__ */ jsx(
+          "input",
+          {
+            value: draftExt,
+            placeholder: "添加扩展名，如 jsonc",
+            onChange: (e) => setDraftExt(e.target.value),
+            onKeyDown: (e) => {
+              if (e.key === "Enter") {
+                const v = draftExt.trim().replace(/^\./, "").toLowerCase();
+                if (v && !whitelist.includes(v)) setWhitelist((p) => [...p, v]);
+                setDraftExt("");
+              }
+            }
+          }
+        ),
+        /* @__PURE__ */ jsx(
+          "button",
+          {
+            className: "gm-btn",
+            onClick: () => {
+              const v = draftExt.trim().replace(/^\./, "").toLowerCase();
+              if (v && !whitelist.includes(v)) setWhitelist((p) => [...p, v]);
+              setDraftExt("");
+            },
+            children: "添加"
+          }
+        )
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxs("div", { className: "gm-field", children: [
+      /* @__PURE__ */ jsx("label", { children: "预置" }),
+      /* @__PURE__ */ jsxs("div", { className: "gm-chips", children: [
+        /* @__PURE__ */ jsx("button", { type: "button", className: "gm-chip", onClick: () => setWhitelist([...defaults]), children: "重置为预置" }),
+        /* @__PURE__ */ jsx(
+          "button",
+          {
+            type: "button",
+            className: "gm-chip",
+            onClick: () => setWhitelist((prev) => [.../* @__PURE__ */ new Set([...prev, ...defaults])]),
+            children: "合并预置"
+          }
+        )
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxs("div", { className: "gm-field", children: [
+      /* @__PURE__ */ jsx("label", { children: "最大直接打开文件大小（MB）" }),
+      /* @__PURE__ */ jsx(
+        "input",
+        {
+          type: "number",
+          min: 1,
+          max: 200,
+          value: maxMb,
+          onChange: (e) => setMaxMb(Number(e.target.value) || 10)
+        }
+      ),
+      /* @__PURE__ */ jsx("div", { style: { color: "var(--fg-secondary)", fontSize: 11, marginTop: 4 }, children: "超过此大小会提示确认，可强制以文本打开。默认 10 MB。" })
+    ] }),
+    /* @__PURE__ */ jsxs("div", { style: { display: "flex", gap: 8, marginTop: 8 }, children: [
+      /* @__PURE__ */ jsx("button", { className: "gm-btn primary", onClick: () => void save(), children: "保存" }),
+      /* @__PURE__ */ jsx("button", { className: "gm-btn", onClick: onClose, children: "返回" })
+    ] })
+  ] }) });
 }
 function RepoWorkspace({
   repo,
@@ -1442,7 +1735,7 @@ function RepoWorkspace({
       }).catch((e) => onToast(e.message, true));
     }
   };
-  const openFile = async (filePath, silent = false) => {
+  const openFile = async (filePath, silent = false, force = false) => {
     setSelectedFile(filePath);
     try {
       const openedFile = await api.tasks(`open-${filePath}`, `打开 ${filePath.split("/").pop()}`, async () => {
@@ -1458,47 +1751,49 @@ function RepoWorkspace({
             block: { kind: "error", message: "文件不存在或不可读" }
           };
         }
-        if (probe.binary) {
-          return {
-            path: filePath,
-            label: filePath.split("/").pop() ?? filePath,
-            status: st,
-            patch: "",
-            block: {
-              kind: "binary",
-              size: probe.size,
-              message: "检测到二进制内容",
-              ext: probe.ext
-            }
-          };
-        }
-        if (!probe.whitelisted) {
-          return {
-            path: filePath,
-            label: filePath.split("/").pop() ?? filePath,
-            status: st,
-            patch: "",
-            block: {
-              kind: "whitelist",
-              size: probe.size,
-              ext: probe.ext,
-              message: "不在文本打开白名单中"
-            }
-          };
-        }
-        if (probe.tooLarge) {
-          return {
-            path: filePath,
-            label: filePath.split("/").pop() ?? filePath,
-            status: st,
-            patch: "",
-            block: {
-              kind: "size",
-              size: probe.size,
-              message: `超过 ${probe.maxFileSizeMb} MB 限制`,
-              ext: probe.ext
-            }
-          };
+        if (!force) {
+          if (probe.binary) {
+            return {
+              path: filePath,
+              label: filePath.split("/").pop() ?? filePath,
+              status: st,
+              patch: "",
+              block: {
+                kind: "binary",
+                size: probe.size,
+                message: "检测到二进制内容",
+                ext: probe.ext
+              }
+            };
+          }
+          if (!probe.whitelisted) {
+            return {
+              path: filePath,
+              label: filePath.split("/").pop() ?? filePath,
+              status: st,
+              patch: "",
+              block: {
+                kind: "whitelist",
+                size: probe.size,
+                ext: probe.ext,
+                message: "不在文本打开白名单中"
+              }
+            };
+          }
+          if (probe.tooLarge) {
+            return {
+              path: filePath,
+              label: filePath.split("/").pop() ?? filePath,
+              status: st,
+              patch: "",
+              block: {
+                kind: "size",
+                size: probe.size,
+                message: `超过 ${probe.maxFileSizeMb} MB 限制`,
+                ext: probe.ext
+              }
+            };
+          }
         }
         const patch = await loadPatch(filePath);
         return {
@@ -1523,10 +1818,15 @@ function RepoWorkspace({
     if (!opened) return;
     const filePath = opened.path;
     if (addToWhitelist) {
-      const ext = filePath.includes(".") ? filePath.split(".").pop() || "" : "";
+      const base = filePath.split("/").pop() ?? filePath;
+      const ext = base.includes(".") && !base.startsWith(".") ? base.split(".").pop() || "" : base.replace(/^\./, "");
       if (ext) await api.settingsAddExt(ext);
     }
-    await api.tasks(`force-${filePath}`, `强制打开 ${opened.label}`, () => openFile(filePath));
+    await api.tasks(
+      `force-${filePath}`,
+      `强制打开 ${opened.label}`,
+      () => openFile(filePath, false, true)
+    );
   };
   const openCommit = async (commit) => {
     setSelectedCommit(commit);
@@ -1813,6 +2113,18 @@ function RepoWorkspace({
                     onToast(`已 add ${p}`);
                     return refreshStatus();
                   }).catch((e) => onToast(e.message, true));
+                },
+                onIgnore: (p) => {
+                  void (async () => {
+                    try {
+                      await api.ignorePaths(repo.path, [p]);
+                      onToast(`已忽略 ${p}`);
+                    } catch (e) {
+                      onToast(e.message, true);
+                    } finally {
+                      await refreshStatus();
+                    }
+                  })();
                 }
               }
             ) })
@@ -2039,18 +2351,23 @@ function FileBlocked({
 function ToolSettingsPage({
   onToast
 }) {
-  const [whitelist, setWhitelist] = useState([]);
-  const [defaults, setDefaults] = useState([]);
-  const [maxMb, setMaxMb] = useState(10);
-  const [draftExt, setDraftExt] = useState("");
   const [saved, setSaved] = useState(false);
+  const [gl, setGl] = useState({ baseUrl: "", token: "", projectPath: "" });
+  const [members, setMembers] = useState([]);
+  const [assignees, setAssignees] = useState([]);
+  const [reviewers, setReviewers] = useState([]);
   useEffect(() => {
     void (async () => {
       try {
-        const s = await api.settingsGet();
-        setWhitelist(s.textWhitelist);
-        setDefaults(s.defaultWhitelist);
-        setMaxMb(s.maxFileSizeMb);
+        const g = await api.gitlabSettings();
+        setGl(g);
+        if (g.baseUrl && g.token && g.projectPath) {
+          try {
+            setMembers(await api.gitlabMembers(g));
+          } catch {
+            setMembers([]);
+          }
+        }
       } catch (e) {
         onToast(e.message, true);
       }
@@ -2058,102 +2375,86 @@ function ToolSettingsPage({
   }, []);
   const save = async () => {
     try {
-      await api.settingsSave({
-        textWhitelist: whitelist,
-        maxFileSizeMb: Math.max(1, Math.min(200, maxMb))
-      });
+      await api.saveGitlabSettings(gl);
       setSaved(true);
       window.setTimeout(() => setSaved(false), 2e3);
-      onToast("设置已保存");
+      onToast("GitLab 配置已保存");
     } catch (e) {
       onToast(e.message, true);
     }
   };
-  const addExt = () => {
-    const e = draftExt.trim().replace(/^\./, "").toLowerCase();
-    if (!e || whitelist.includes(e)) return;
-    setWhitelist((prev) => [...prev, e]);
-    setDraftExt("");
-  };
   return /* @__PURE__ */ jsx("div", { className: "gm-settings-page", children: /* @__PURE__ */ jsxs("div", { className: "gm-settings-card", children: [
-    /* @__PURE__ */ jsx("h2", { children: "Git 工具设置" }),
-    /* @__PURE__ */ jsx("p", { className: "gm-settings-desc", children: "配置文本直接打开策略；超限或非白名单文件可强制以文本打开。" }),
+    /* @__PURE__ */ jsx("h2", { children: "GitLab 配置" }),
+    /* @__PURE__ */ jsx("p", { className: "gm-settings-desc", children: "用于一键 MR 与成员选择。文件打开策略请用左下角「全局设置」。" }),
     /* @__PURE__ */ jsxs("div", { className: "gm-field", children: [
-      /* @__PURE__ */ jsx("label", { children: "文本直接打开白名单（扩展名 / 文件名）" }),
-      /* @__PURE__ */ jsx("div", { className: "gm-chips", style: { marginBottom: 8 }, children: whitelist.map((e) => /* @__PURE__ */ jsxs(
-        "button",
-        {
-          type: "button",
-          className: "gm-chip on",
-          title: "点击移除",
-          onClick: () => setWhitelist((prev) => prev.filter((x) => x !== e)),
-          children: [
-            e,
-            " ×"
-          ]
-        },
-        e
-      )) }),
-      /* @__PURE__ */ jsxs("div", { style: { display: "flex", gap: 8 }, children: [
-        /* @__PURE__ */ jsx(
-          "input",
-          {
-            value: draftExt,
-            placeholder: "添加扩展名，如 jsonc",
-            onChange: (e) => setDraftExt(e.target.value),
-            onKeyDown: (e) => {
-              if (e.key === "Enter") addExt();
-            }
-          }
-        ),
-        /* @__PURE__ */ jsx("button", { className: "gm-btn", onClick: addExt, children: "添加" })
-      ] })
-    ] }),
-    /* @__PURE__ */ jsxs("div", { className: "gm-field", children: [
-      /* @__PURE__ */ jsx("label", { children: "预置样式" }),
-      /* @__PURE__ */ jsxs("div", { className: "gm-chips", children: [
-        /* @__PURE__ */ jsx("button", { type: "button", className: "gm-chip", onClick: () => setWhitelist([...defaults]), children: "重置为预置" }),
-        /* @__PURE__ */ jsx(
-          "button",
-          {
-            type: "button",
-            className: "gm-chip",
-            onClick: () => setWhitelist((prev) => [.../* @__PURE__ */ new Set([...prev, ...defaults])]),
-            children: "合并预置"
-          }
-        )
-      ] })
-    ] }),
-    /* @__PURE__ */ jsxs("div", { className: "gm-field", children: [
-      /* @__PURE__ */ jsx("label", { children: "最大直接打开文件大小（MB）" }),
+      /* @__PURE__ */ jsx("label", { children: "baseUrl" }),
       /* @__PURE__ */ jsx(
         "input",
         {
-          type: "number",
-          min: 1,
-          max: 200,
-          value: maxMb,
-          onChange: (e) => setMaxMb(Number(e.target.value) || 10)
+          value: gl.baseUrl,
+          onChange: (e) => setGl((s) => ({ ...s, baseUrl: e.target.value })),
+          placeholder: "https://gitlab.com"
         }
-      ),
-      /* @__PURE__ */ jsx("div", { style: { color: "var(--fg-secondary)", fontSize: 11, marginTop: 4 }, children: "超过此大小会提示确认，可强制以文本打开。默认 10 MB。" })
+      )
+    ] }),
+    /* @__PURE__ */ jsxs("div", { className: "gm-field", children: [
+      /* @__PURE__ */ jsx("label", { children: "token" }),
+      /* @__PURE__ */ jsx(
+        "input",
+        {
+          type: "password",
+          value: gl.token,
+          onChange: (e) => setGl((s) => ({ ...s, token: e.target.value })),
+          placeholder: "personal access token"
+        }
+      )
+    ] }),
+    /* @__PURE__ */ jsxs("div", { className: "gm-field", children: [
+      /* @__PURE__ */ jsx("label", { children: "projectPath" }),
+      /* @__PURE__ */ jsx(
+        "input",
+        {
+          value: gl.projectPath,
+          onChange: (e) => setGl((s) => ({ ...s, projectPath: e.target.value })),
+          placeholder: "group/repo"
+        }
+      )
+    ] }),
+    /* @__PURE__ */ jsxs("div", { className: "gm-field", children: [
+      /* @__PURE__ */ jsx("label", { children: "Assignee" }),
+      /* @__PURE__ */ jsxs("div", { className: "gm-chips", children: [
+        members.length === 0 && /* @__PURE__ */ jsx("span", { style: { color: "var(--fg-secondary)", fontSize: 12 }, children: "保存后可拉取成员" }),
+        members.map((m) => /* @__PURE__ */ jsx(
+          "button",
+          {
+            type: "button",
+            className: cx("gm-chip", assignees.includes(m.id) && "on"),
+            onClick: () => setAssignees(
+              (prev) => prev.includes(m.id) ? prev.filter((x) => x !== m.id) : [...prev, m.id]
+            ),
+            children: m.name || m.username
+          },
+          m.id
+        ))
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxs("div", { className: "gm-field", children: [
+      /* @__PURE__ */ jsx("label", { children: "Reviewer" }),
+      /* @__PURE__ */ jsx("div", { className: "gm-chips", children: members.map((m) => /* @__PURE__ */ jsx(
+        "button",
+        {
+          type: "button",
+          className: cx("gm-chip", reviewers.includes(m.id) && "on"),
+          onClick: () => setReviewers(
+            (prev) => prev.includes(m.id) ? prev.filter((x) => x !== m.id) : [...prev, m.id]
+          ),
+          children: m.name || m.username
+        },
+        m.id
+      )) })
     ] }),
     /* @__PURE__ */ jsxs("div", { style: { display: "flex", gap: 8, alignItems: "center", marginTop: 8 }, children: [
-      /* @__PURE__ */ jsxs("button", { className: "gm-btn primary", title: "保存设置", onClick: () => void save(), children: [
-        /* @__PURE__ */ jsxs("svg", { width: "14", height: "14", viewBox: "0 0 16 16", "aria-hidden": true, children: [
-          /* @__PURE__ */ jsx(
-            "path",
-            {
-              d: "M3 3h8l2 2v8H3V3z",
-              fill: "none",
-              stroke: "currentColor",
-              strokeWidth: "1.3"
-            }
-          ),
-          /* @__PURE__ */ jsx("path", { d: "M5 3v4h6V3M5 13v-4h6v4", fill: "none", stroke: "currentColor", strokeWidth: "1.3" })
-        ] }),
-        /* @__PURE__ */ jsx("span", { children: "保存" })
-      ] }),
+      /* @__PURE__ */ jsx("button", { className: "gm-btn primary", onClick: () => void save(), children: "保存" }),
       saved && /* @__PURE__ */ jsx("span", { style: { color: "var(--success)", fontSize: 12 }, children: "OK" })
     ] })
   ] }) });
@@ -2220,6 +2521,7 @@ function FileTree({
   onAdd
 }) {
   const tree = useMemo(() => buildTree(files), [files]);
+  const [menu, setMenu] = useState(null);
   const canAdd = (st) => st === "untracked" || st === "not-added" || st === "deleted";
   const renderDir = (dir, depth, isRoot = false) => {
     const open = isRoot ? true : expanded[dir.path] ?? defaultOpen ?? false;
@@ -2236,6 +2538,17 @@ function FileTree({
             ),
             style: { paddingLeft: pad },
             onClick: () => onToggleDir(dir.path),
+            onContextMenu: (e) => {
+              var _a, _b;
+              (_a = e.preventDefault) == null ? void 0 : _a.call(e);
+              (_b = e.stopPropagation) == null ? void 0 : _b.call(e);
+              setMenu({
+                path: dir.path,
+                x: e.clientX ?? 0,
+                y: e.clientY ?? 0,
+                isDir: true
+              });
+            },
             title: dir.path,
             children: [
               /* @__PURE__ */ jsx("span", { className: "gm-tree-gutter", children: /* @__PURE__ */ jsx(IconChevron, { open }) }),
@@ -2278,6 +2591,17 @@ function FileTree({
               className: cx("gm-file-row", selected === f && "active"),
               style: { paddingLeft: pad + (dir.name ? 14 : 0) },
               onClick: () => onSelect(f),
+              onContextMenu: (e) => {
+                var _a, _b;
+                (_a = e.preventDefault) == null ? void 0 : _a.call(e);
+                (_b = e.stopPropagation) == null ? void 0 : _b.call(e);
+                setMenu({
+                  path: f,
+                  x: e.clientX ?? 0,
+                  y: e.clientY ?? 0,
+                  isDir: false
+                });
+              },
               title: f,
               children: [
                 /* @__PURE__ */ jsx("span", { className: "gm-tree-gutter", "aria-hidden": true, children: " " }),
@@ -2306,7 +2630,41 @@ function FileTree({
     ] }, dir.path || "__root__");
   };
   if (files.length === 0) return /* @__PURE__ */ jsx("div", { className: "gm-empty", children: "暂无文件" });
-  return /* @__PURE__ */ jsx("div", { className: "gm-file-tree", children: renderDir(tree, 0, true) });
+  return /* @__PURE__ */ jsxs("div", { className: "gm-file-tree", children: [
+    renderDir(tree, 0, true),
+    menu && /* @__PURE__ */ jsxs(Fragment, { children: [
+      /* @__PURE__ */ jsx(
+        "div",
+        {
+          className: "gm-menu-backdrop",
+          onClick: () => setMenu(null),
+          onContextMenu: (e) => {
+            var _a;
+            (_a = e.preventDefault) == null ? void 0 : _a.call(e);
+            setMenu(null);
+          }
+        }
+      ),
+      /* @__PURE__ */ jsx(
+        "div",
+        {
+          className: "gm-dropdown gm-context-menu",
+          style: { left: menu.x, top: menu.y, minWidth: 120 },
+          children: onIgnore && /* @__PURE__ */ jsx(
+            MenuItem,
+            {
+              icon: /* @__PURE__ */ jsx(IconMenuIgnore, {}),
+              onClick: () => {
+                onIgnore(menu.path);
+                setMenu(null);
+              },
+              children: "忽略"
+            }
+          )
+        }
+      )
+    ] })
+  ] });
 }
 function statusLabel(s) {
   switch (s) {
@@ -2397,7 +2755,6 @@ function MrPanel({
   const [assignees, setAssignees] = useState([]);
   const [reviewers, setReviewers] = useState([]);
   const [submitting, setSubmitting] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
   useEffect(() => {
     void (async () => {
       var _a, _b;
@@ -2456,8 +2813,7 @@ function MrPanel({
       await persistCache();
       const s = settings;
       if (!s.baseUrl || !s.token || !s.projectPath) {
-        setShowSettings(true);
-        onToast("请先配置 GitLab 连接信息", true);
+        onToast("请先在「设置」中配置 GitLab 连接", true);
         return;
       }
       const created = await api.tasks(
@@ -2541,56 +2897,9 @@ function MrPanel({
           },
           m.id
         )) })
-      ] }),
-      showSettings && /* @__PURE__ */ jsxs("div", { className: "gm-field", style: { borderTop: "1px solid var(--separator)", paddingTop: 12 }, children: [
-        /* @__PURE__ */ jsx("label", { children: "GitLab 配置" }),
-        /* @__PURE__ */ jsx(
-          "input",
-          {
-            placeholder: "baseUrl  https://gitlab.com",
-            value: settings.baseUrl,
-            onChange: (e) => setSettings((s) => ({ ...s, baseUrl: e.target.value })),
-            style: { marginBottom: 8 }
-          }
-        ),
-        /* @__PURE__ */ jsx(
-          "input",
-          {
-            placeholder: "token",
-            value: settings.token,
-            onChange: (e) => setSettings((s) => ({ ...s, token: e.target.value })),
-            style: { marginBottom: 8 }
-          }
-        ),
-        /* @__PURE__ */ jsx(
-          "input",
-          {
-            placeholder: "projectPath  group/repo",
-            value: settings.projectPath,
-            onChange: (e) => setSettings((s) => ({ ...s, projectPath: e.target.value }))
-          }
-        ),
-        /* @__PURE__ */ jsx(
-          "button",
-          {
-            className: "gm-btn",
-            style: { marginTop: 8 },
-            onClick: async () => {
-              await api.saveGitlabSettings(settings);
-              try {
-                setMembers(await api.gitlabMembers(settings));
-                onToast("GitLab 配置已保存");
-              } catch (e) {
-                onToast(e.message, true);
-              }
-            },
-            children: "保存并拉取成员"
-          }
-        )
       ] })
     ] }),
     /* @__PURE__ */ jsxs("div", { className: "gm-modal-footer", children: [
-      /* @__PURE__ */ jsx("button", { className: "gm-btn ghost", onClick: () => setShowSettings(true), children: "设置" }),
       /* @__PURE__ */ jsx("button", { className: "gm-btn", onClick: onClose, children: "取消" }),
       /* @__PURE__ */ jsx("button", { className: "gm-btn primary", disabled: submitting, onClick: () => void submit(), children: submitting ? "提交中…" : "创建 MR" })
     ] })

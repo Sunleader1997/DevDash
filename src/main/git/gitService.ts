@@ -203,6 +203,46 @@ export class GitService {
     return rows
   }
 
+  async ignorePaths(repoPath: string, paths: string[]): Promise<void> {
+    const gi = path.join(repoPath, '.gitignore')
+    let existing = ''
+    try {
+      existing = await fs.readFile(gi, 'utf8')
+    } catch {
+      existing = ''
+    }
+    const lines = existing.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    const add: string[] = []
+    for (const p of paths) {
+      const rel = p.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '')
+      if (!rel) continue
+
+      let entry = rel
+      try {
+        const st = await fs.stat(path.join(repoPath, rel))
+        if (st.isDirectory()) entry = `${rel}/`
+      } catch {
+        /* path may already be gone */
+      }
+
+      const covered = lines.some((l) => {
+        const t = l.replace(/^\/+/, '')
+        return t === entry || t === rel || t === `${rel}/` || t === entry.replace(/\/+$/, '')
+      })
+      if (!covered) add.push(entry)
+    }
+    if (add.length) {
+      const sep = existing && !existing.endsWith('\n') ? '\n' : ''
+      await fs.writeFile(gi, `${existing}${sep}${add.join('\n')}\n`, 'utf8')
+    }
+
+    // Untrack if present. --ignore-unmatch keeps untracked files/dirs from failing the command.
+    const targets = paths.map((p) => p.replace(/\\/g, '/')).filter(Boolean)
+    if (targets.length) {
+      await git(repoPath, ['rm', '-r', '--cached', '--ignore-unmatch', '--', ...targets])
+    }
+  }
+
   async addPaths(repoPath: string, paths: string[]): Promise<void> {
     if (!paths.length) return
     await git(repoPath, ['add', '--', ...paths])

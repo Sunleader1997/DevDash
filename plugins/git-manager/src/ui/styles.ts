@@ -15,6 +15,24 @@ export const pluginCss = `
   flex-direction: column;
   min-height: 0;
 }
+.gm-side-footer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--separator);
+  padding: 6px 8px 10px;
+}
+.gm-side-footer-btn {
+  color: var(--fg-secondary);
+  font-size: 12px;
+  gap: 6px;
+  padding: 6px 8px;
+}
+.gm-side-footer-btn:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.gm-side-footer-btn svg {
+  flex-shrink: 0;
+}
 .gm-side-header {
   display: flex;
   align-items: center;
@@ -114,6 +132,14 @@ export const pluginCss = `
 .gm-btn.icon {
   padding: 5px 8px;
 }
+.gm-btn.icon.bare {
+  background: transparent;
+  border-color: transparent;
+  padding: 4px;
+}
+.gm-btn.icon.bare:hover {
+  background: var(--bg-hover);
+}
 .gm-btn.icon.primary {
   padding: 5px 9px;
 }
@@ -173,6 +199,18 @@ export const pluginCss = `
   justify-content: space-between;
   gap: 8px;
 }
+.gm-repo-branch {
+  margin-left: auto;
+  color: var(--fg-tertiary);
+  font-size: 11px;
+  font-weight: 400;
+  padding-left: 8px;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .gm-commit-panel {
   display: flex;
   flex-direction: column;
@@ -272,16 +310,19 @@ export const pluginCss = `
 
 .gm-row-add {
   margin-left: auto;
-  padding: 2px 6px;
-  border-radius: 6px;
+  padding: 2px;
+  border-radius: 4px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--accent-soft);
+  background: transparent;
   color: var(--accent);
-  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border: none;
   opacity: 0;
   flex-shrink: 0;
+}
+.gm-row-add:hover {
+  background: var(--accent-soft);
 }
 .gm-file-row:hover .gm-row-add {
   opacity: 1;
@@ -696,6 +737,32 @@ export const pluginCss = `
   top: calc(100% + 8px);
   z-index: 30;
 }
+.gm-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 8px;
+}
+.gm-menu-icon {
+  display: inline-flex;
+  width: 16px;
+  justify-content: center;
+  color: var(--fg-secondary);
+  flex-shrink: 0;
+}
+.gm-menu-danger .gm-menu-icon {
+  color: var(--danger, #ff453a);
+}
+.gm-menu-danger {
+  color: var(--danger, #ff453a) !important;
+}
+.gm-menu-danger:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent) !important;
+}
+
 .gm-context-menu {
   position: fixed;
   z-index: 200;
