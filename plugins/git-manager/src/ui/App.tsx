@@ -925,6 +925,25 @@ function RepoWorkspace({
                 <div style={{ display: 'flex', gap: 4 }}>
                   <button
                     className="gm-btn icon"
+                    title="拉取 Pull"
+                    aria-label="Pull"
+                    onClick={() => {
+                      void api
+                        .tasks('pull', 'git pull', () => api.pull(repo.path))
+                        .then(() => {
+                          onToast('拉取成功')
+                          return Promise.all([refreshStatus(), refreshBranches(), refreshLog()])
+                        })
+                        .catch((e: Error) => onToast(e.message, true))
+                    }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden>
+                      <path d="M8 3v9M4.5 8.5L8 12l3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M3 3h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                  <button
+                    className="gm-btn icon"
                     title="推送 Push"
                     aria-label="Push"
                     onClick={() => setPushOpen(true)}

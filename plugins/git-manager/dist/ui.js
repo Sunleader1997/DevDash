@@ -35,6 +35,7 @@ const api = {
   addPaths: (repoPath, paths) => invoke("git:add", repoPath, paths),
   commit: (repoPath, message, paths) => invoke("git:commit", repoPath, message, paths),
   push: (repoPath, remote, ref) => invoke("git:push", repoPath, remote, ref),
+  pull: (repoPath, remote, branch) => invoke("git:pull", repoPath, remote, branch),
   unpushed: (repoPath) => invoke("git:unpushed", repoPath),
   branches: (repoPath) => invoke("git:branches", repoPath),
   checkout: (repoPath, branch) => invoke("git:checkout", repoPath, branch),
@@ -1647,6 +1648,24 @@ function RepoWorkspace({
             /* @__PURE__ */ jsxs("div", { className: "gm-panel-header gm-panel-header-row", children: [
               /* @__PURE__ */ jsx("span", { children: "文件目录" }),
               /* @__PURE__ */ jsxs("div", { style: { display: "flex", gap: 4 }, children: [
+                /* @__PURE__ */ jsx(
+                  "button",
+                  {
+                    className: "gm-btn icon",
+                    title: "拉取 Pull",
+                    "aria-label": "Pull",
+                    onClick: () => {
+                      void api.tasks("pull", "git pull", () => api.pull(repo.path)).then(() => {
+                        onToast("拉取成功");
+                        return Promise.all([refreshStatus(), refreshBranches(), refreshLog()]);
+                      }).catch((e) => onToast(e.message, true));
+                    },
+                    children: /* @__PURE__ */ jsxs("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": true, children: [
+                      /* @__PURE__ */ jsx("path", { d: "M8 3v9M4.5 8.5L8 12l3.5-3.5", fill: "none", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round" }),
+                      /* @__PURE__ */ jsx("path", { d: "M3 3h10", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round" })
+                    ] })
+                  }
+                ),
                 /* @__PURE__ */ jsx(
                   "button",
                   {

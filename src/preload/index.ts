@@ -16,6 +16,7 @@ const invoke = (channel: string, ...args: unknown[]): Promise<unknown> => {
     'git:add',
     'git:commit',
     'git:push',
+    'git:pull',
     'git:unpushed',
     'git:branches',
     'git:checkout',

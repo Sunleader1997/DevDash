@@ -224,6 +224,12 @@ export class GitService {
     return git(repoPath, args)
   }
 
+  async pull(repoPath: string, remote = 'origin', branch?: string): Promise<string> {
+    const args = ['pull', remote]
+    if (branch) args.push(branch)
+    return git(repoPath, args)
+  }
+
   async unpushedCommits(repoPath: string, limit = 30): Promise<GitCommit[]> {
     // Prefer upstream range; fall back to origin/<branch>..HEAD
     try {
