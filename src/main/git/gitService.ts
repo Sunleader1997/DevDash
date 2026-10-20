@@ -79,20 +79,23 @@ function classifyPorcelain(index: string, worktree: string): GitStatusEntry['sta
   if (index === 'U' || worktree === 'U' || (index === 'A' && worktree === 'A') || (index === 'D' && worktree === 'D')) {
     return 'conflict'
   }
+  // Never added (untracked) → red
   if (index === '?' && worktree === '?') return 'untracked'
   if (index === 'R' || worktree === 'R' || index === 'C' || worktree === 'C') return 'renamed'
+  // Deleted (staged or not) → red
   if (index === 'D' || worktree === 'D') return 'deleted'
 
-  // New file staged and not further modified → green
+  // New file staged and clean in worktree → green
   if (index === 'A' && (worktree === ' ' || worktree === '')) return 'added'
-  // Staged (A/M/...) then worktree changed again → blue
-  if (index === 'A' || index === 'M' || index === 'T') {
-    if (worktree === 'M' || worktree === 'T') return 'added-dirty'
-    if (worktree === ' ' || worktree === '') return index === 'A' ? 'added' : 'added-dirty'
+  // New file staged then modified again → blue (add 后又变更)
+  if (index === 'A') return 'added-dirty'
+
+  // Tracked (already committed / added before) and changed
+  //  - worktree-only change ` M` → blue
+  //  - staged `M ` or both `MM` → blue
+  if (index === 'M' || index === 'T' || worktree === 'M' || worktree === 'T') {
+    return 'added-dirty'
   }
-  // Not added to index (worktree-only change or untracked-like) → red
-  if (worktree === 'M' || worktree === 'T') return 'not-added'
-  if (index === 'M' || index === 'T') return 'added-dirty'
 
   return 'clean'
 }
@@ -177,7 +180,7 @@ export class GitService {
 
   async status(repoPath: string): Promise<GitStatusEntry[]> {
     const out = await git(repoPath, ['status', '--porcelain=v1', '-uall', '--ignored=matching'])
-    return out
+    const rows = out
       .split('\n')
       .filter(Boolean)
       .map((line) => {
@@ -188,13 +191,32 @@ export class GitService {
           const parts = filePath.split(' -> ')
           filePath = parts[parts.length - 1] ?? filePath
         }
+        // `!! node_modules/` may come with trailing slash
+        const normalized = filePath.replace(/\/$/, '')
         return {
-          path: filePath,
+          path: normalized,
           index,
           worktree,
           status: classifyPorcelain(index, worktree)
         }
       })
+    return rows
+  }
+
+  async addPaths(repoPath: string, paths: string[]): Promise<void> {
+    if (!paths.length) return
+    await git(repoPath, ['add', '--', ...paths])
+  }
+
+  async commit(repoPath: string, message: string, paths?: string[]): Promise<string> {
+    const args = ['commit', '-m', message]
+    if (paths && paths.length) {
+      // Ensure newly created files under paths are included
+      await git(repoPath, ['add', '--', ...paths])
+      args.push('--', ...paths)
+    }
+    const out = await git(repoPath, args)
+    return out
   }
 
   async listFiles(repoPath: string): Promise<string[]> {

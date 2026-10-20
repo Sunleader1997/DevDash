@@ -167,6 +167,90 @@ export const pluginCss = `
   color: var(--fg-secondary);
   border-bottom: 1px solid var(--separator);
 }
+.gm-panel-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.gm-commit-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.gm-commit-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--separator);
+  font-size: 12px;
+  cursor: pointer;
+}
+.gm-commit-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 12px;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.gm-commit-row:hover {
+  background: var(--bg-hover);
+}
+.gm-commit-dir {
+  color: var(--fg-tertiary);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+.gm-commit-form {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--separator);
+  background: var(--bg-elevated);
+}
+.gm-commit-form input {
+  flex: 1;
+  min-width: 0;
+  border-radius: 8px;
+  border: 1px solid var(--separator);
+  background: var(--bg);
+  padding: 7px 10px;
+  outline: none;
+}
+.gm-commit-form input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.gm-row-add {
+  margin-left: auto;
+  padding: 2px 6px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  opacity: 0;
+  flex-shrink: 0;
+}
+.gm-file-row:hover .gm-row-add {
+  opacity: 1;
+}
+.gm-row-add:hover {
+  background: var(--accent);
+  color: white;
+}
 .gm-scroll {
   overflow: auto;
   flex: 1;
@@ -236,9 +320,14 @@ export const pluginCss = `
   color: var(--success, #30d158);
   font-weight: 560;
 }
-.gm-file-name.st-ignored {
+.gm-file-name.st-ignored,
+.gm-dir-name.st-ignored {
   color: var(--st-ignored, #a2845e);
   font-weight: 560;
+}
+.gm-file-row.gm-dir-row.st-ignored svg,
+.gm-file-row:has(.gm-dir-name.st-ignored) svg {
+  color: var(--st-ignored, #a2845e) !important;
 }
 .gm-file-name.st-conflict {
   color: var(--conflict, #bf5af2);

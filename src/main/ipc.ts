@@ -175,6 +175,10 @@ export function registerIpc(): void {
   ipcMain.handle('git:repo-info', (_e, repoPath: string) => gitService.getRepoInfo(repoPath))
   ipcMain.handle('git:status', (_e, repoPath: string) => gitService.status(repoPath))
   ipcMain.handle('git:list-files', (_e, repoPath: string) => gitService.listFiles(repoPath))
+  ipcMain.handle('git:add', (_e, repoPath: string, paths: string[]) => gitService.addPaths(repoPath, paths))
+  ipcMain.handle('git:commit', (_e, repoPath: string, message: string, paths?: string[]) =>
+    gitService.commit(repoPath, message, paths)
+  )
   ipcMain.handle('git:branches', (_e, repoPath: string) => gitService.listBranches(repoPath))
   ipcMain.handle('git:checkout', (_e, repoPath: string, branch: string) => gitService.checkout(repoPath, branch))
   ipcMain.handle('git:log', (_e, repoPath: string, limit?: number, skip?: number) =>

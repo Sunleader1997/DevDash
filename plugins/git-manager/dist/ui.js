@@ -32,6 +32,8 @@ const api = {
   repoInfo: (repoPath) => invoke("git:repo-info", repoPath),
   status: (repoPath) => invoke("git:status", repoPath),
   listFiles: (repoPath) => invoke("git:list-files", repoPath),
+  addPaths: (repoPath, paths) => invoke("git:add", repoPath, paths),
+  commit: (repoPath, message, paths) => invoke("git:commit", repoPath, message, paths),
   branches: (repoPath) => invoke("git:branches", repoPath),
   checkout: (repoPath, branch) => invoke("git:checkout", repoPath, branch),
   log: (repoPath, limit, skip) => invoke("git:log", repoPath, limit, skip),
@@ -227,6 +229,90 @@ const pluginCss = `
   color: var(--fg-secondary);
   border-bottom: 1px solid var(--separator);
 }
+.gm-panel-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.gm-commit-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.gm-commit-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--separator);
+  font-size: 12px;
+  cursor: pointer;
+}
+.gm-commit-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 12px;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.gm-commit-row:hover {
+  background: var(--bg-hover);
+}
+.gm-commit-dir {
+  color: var(--fg-tertiary);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+.gm-commit-form {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--separator);
+  background: var(--bg-elevated);
+}
+.gm-commit-form input {
+  flex: 1;
+  min-width: 0;
+  border-radius: 8px;
+  border: 1px solid var(--separator);
+  background: var(--bg);
+  padding: 7px 10px;
+  outline: none;
+}
+.gm-commit-form input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.gm-row-add {
+  margin-left: auto;
+  padding: 2px 6px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  opacity: 0;
+  flex-shrink: 0;
+}
+.gm-file-row:hover .gm-row-add {
+  opacity: 1;
+}
+.gm-row-add:hover {
+  background: var(--accent);
+  color: white;
+}
 .gm-scroll {
   overflow: auto;
   flex: 1;
@@ -296,9 +382,14 @@ const pluginCss = `
   color: var(--success, #30d158);
   font-weight: 560;
 }
-.gm-file-name.st-ignored {
+.gm-file-name.st-ignored,
+.gm-dir-name.st-ignored {
   color: var(--st-ignored, #a2845e);
   font-weight: 560;
+}
+.gm-file-row.gm-dir-row.st-ignored svg,
+.gm-file-row:has(.gm-dir-name.st-ignored) svg {
+  color: var(--st-ignored, #a2845e) !important;
 }
 .gm-file-name.st-conflict {
   color: var(--conflict, #bf5af2);
@@ -1160,6 +1251,10 @@ function RepoWorkspace({
   const [treeExpanded, setTreeExpanded] = useState({});
   const [selectedFile, setSelectedFile] = useState(null);
   const [opened, setOpened] = useState(null);
+  const [commitMode, setCommitMode] = useState(false);
+  const [commitChecked, setCommitChecked] = useState(/* @__PURE__ */ new Set());
+  const [commitMsg, setCommitMsg] = useState("");
+  const [committing, setCommitting] = useState(false);
   const [commits, setCommits] = useState([]);
   const [selectedCommit, setSelectedCommit] = useState(null);
   const [commitFiles, setCommitFiles] = useState([]);
@@ -1170,8 +1265,38 @@ function RepoWorkspace({
   const statusByPath = useMemo(() => {
     const map = /* @__PURE__ */ new Map();
     for (const s of status) map.set(s.path, s.status);
+    const isIgnored = (p) => map.get(p) === "ignored";
+    const dirToFiles = /* @__PURE__ */ new Map();
+    for (const f of files) {
+      const parts = f.split("/");
+      for (let i = 1; i < parts.length; i++) {
+        const dir = parts.slice(0, i).join("/");
+        const list = dirToFiles.get(dir);
+        if (list) list.push(f);
+        else dirToFiles.set(dir, [f]);
+      }
+    }
+    for (const [dir, list] of dirToFiles) {
+      if (isIgnored(dir)) {
+        for (const f of list) map.set(f, "ignored");
+        continue;
+      }
+      if (list.length > 0 && list.every((f) => isIgnored(f))) {
+        map.set(dir, "ignored");
+      }
+    }
+    for (const f of files) {
+      const parts = f.split("/");
+      for (let i = 0; i < parts.length - 1; i++) {
+        const prefix = parts.slice(0, i + 1).join("/");
+        if (map.get(prefix) === "ignored") {
+          map.set(f, "ignored");
+          break;
+        }
+      }
+    }
     return map;
-  }, [status]);
+  }, [status, files]);
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -1385,6 +1510,49 @@ function RepoWorkspace({
       onToast(e.message, true);
     }
   };
+  const commitableFiles = useMemo(() => {
+    return files.filter((f) => {
+      const st = statusByPath.get(f);
+      return st && st !== "clean" && st !== "ignored";
+    });
+  }, [files, statusByPath]);
+  const allChecked = commitableFiles.length > 0 && commitableFiles.every((f) => commitChecked.has(f));
+  const toggleCommit = (path) => {
+    setCommitChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  };
+  const toggleAllCommit = () => {
+    setCommitChecked(allChecked ? /* @__PURE__ */ new Set() : new Set(commitableFiles));
+  };
+  const runCommit = async () => {
+    const paths = commitableFiles.filter((f) => commitChecked.has(f));
+    if (!commitMsg.trim()) {
+      onToast("请输入 commit message", true);
+      return;
+    }
+    if (paths.length === 0) {
+      onToast("请勾选要提交的文件", true);
+      return;
+    }
+    setCommitting(true);
+    try {
+      await api.tasks("commit", "提交变更", () => api.commit(repo.path, commitMsg.trim(), paths));
+      onToast("提交成功");
+      setCommitMsg("");
+      setCommitChecked(/* @__PURE__ */ new Set());
+      setCommitMode(false);
+      await refreshStatus();
+      await refreshLog();
+    } catch (e) {
+      onToast(e.message, true);
+    } finally {
+      setCommitting(false);
+    }
+  };
   return /* @__PURE__ */ jsxs(Fragment, { children: [
     /* @__PURE__ */ jsxs("header", { className: "gm-titlebar", children: [
       /* @__PURE__ */ jsx("div", { className: "gm-title", children: repo.name }),
@@ -1431,8 +1599,120 @@ function RepoWorkspace({
         style: { gridTemplateColumns: `${sizes.leftWidth}px 5px minmax(0, 1fr)` },
         children: [
           /* @__PURE__ */ jsx("div", { className: "gm-panel", children: view === "files" ? /* @__PURE__ */ jsxs(Fragment, { children: [
-            /* @__PURE__ */ jsx("div", { className: "gm-panel-header", children: "文件目录" }),
-            /* @__PURE__ */ jsx("div", { className: "gm-scroll", children: /* @__PURE__ */ jsx(
+            /* @__PURE__ */ jsxs("div", { className: "gm-panel-header gm-panel-header-row", children: [
+              /* @__PURE__ */ jsx("span", { children: "文件目录" }),
+              /* @__PURE__ */ jsxs("div", { style: { display: "flex", gap: 4 }, children: [
+                /* @__PURE__ */ jsx(
+                  "button",
+                  {
+                    className: cx("gm-btn icon", commitMode && "primary"),
+                    title: "提交模式",
+                    "aria-label": "Commit",
+                    onClick: () => {
+                      setCommitMode((v) => !v);
+                      if (!commitMode) {
+                        setCommitChecked(
+                          new Set(
+                            files.filter((f) => {
+                              const st = statusByPath.get(f);
+                              return st && st !== "clean" && st !== "ignored";
+                            })
+                          )
+                        );
+                      } else {
+                        setCommitChecked(/* @__PURE__ */ new Set());
+                      }
+                    },
+                    children: /* @__PURE__ */ jsxs("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": true, children: [
+                      /* @__PURE__ */ jsx("circle", { cx: "8", cy: "8", r: "2.2", fill: "currentColor" }),
+                      /* @__PURE__ */ jsx("path", { d: "M8 2v3.2M8 10.8V14", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round" })
+                    ] })
+                  }
+                ),
+                /* @__PURE__ */ jsx(
+                  "button",
+                  {
+                    className: "gm-btn icon",
+                    title: "刷新 Git 状态",
+                    "aria-label": "刷新",
+                    onClick: () => {
+                      void refreshStatus();
+                      void refreshBranches();
+                      void refreshLog();
+                    },
+                    children: /* @__PURE__ */ jsxs("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": true, children: [
+                      /* @__PURE__ */ jsx(
+                        "path",
+                        {
+                          d: "M13 8a5 5 0 1 1-1.5-3.5",
+                          fill: "none",
+                          stroke: "currentColor",
+                          strokeWidth: "1.5",
+                          strokeLinecap: "round"
+                        }
+                      ),
+                      /* @__PURE__ */ jsx("path", { d: "M13 2v3h-3", fill: "none", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round" })
+                    ] })
+                  }
+                )
+              ] })
+            ] }),
+            commitMode ? /* @__PURE__ */ jsxs("div", { className: "gm-commit-panel", children: [
+              /* @__PURE__ */ jsxs("label", { className: "gm-commit-all", children: [
+                /* @__PURE__ */ jsx("input", { type: "checkbox", checked: allChecked, onChange: toggleAllCommit }),
+                /* @__PURE__ */ jsx("span", { children: "全选" }),
+                /* @__PURE__ */ jsxs("span", { className: "muted", children: [
+                  commitChecked.size,
+                  "/",
+                  commitableFiles.length
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs("div", { className: "gm-scroll", children: [
+                commitableFiles.length === 0 && /* @__PURE__ */ jsx("div", { className: "gm-empty", children: "无变更文件" }),
+                commitableFiles.map((f) => {
+                  const st = statusByPath.get(f);
+                  const name = f.split("/").pop() ?? f;
+                  const dir = f.includes("/") ? f.slice(0, f.lastIndexOf("/")) : "";
+                  return /* @__PURE__ */ jsxs("label", { className: "gm-commit-row", title: f, children: [
+                    /* @__PURE__ */ jsx(
+                      "input",
+                      {
+                        type: "checkbox",
+                        checked: commitChecked.has(f),
+                        onChange: () => toggleCommit(f)
+                      }
+                    ),
+                    /* @__PURE__ */ jsx("span", { className: cx("gm-file-name", st ? statusClass(st) : ""), children: name }),
+                    dir && /* @__PURE__ */ jsx("span", { className: "gm-commit-dir", children: dir })
+                  ] }, f);
+                })
+              ] }),
+              /* @__PURE__ */ jsxs("div", { className: "gm-commit-form", children: [
+                /* @__PURE__ */ jsx(
+                  "input",
+                  {
+                    placeholder: "commit message",
+                    value: commitMsg,
+                    onChange: (e) => setCommitMsg(e.target.value),
+                    onKeyDown: (e) => {
+                      if (e.key === "Enter") void runCommit();
+                    }
+                  }
+                ),
+                /* @__PURE__ */ jsxs(
+                  "button",
+                  {
+                    className: "gm-btn primary",
+                    disabled: committing || !commitMsg.trim() || commitChecked.size === 0,
+                    onClick: () => void runCommit(),
+                    children: [
+                      /* @__PURE__ */ jsx("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": true, children: /* @__PURE__ */ jsx("path", { d: "M3 8.5l3.5 3.5L13 4", fill: "none", stroke: "currentColor", strokeWidth: "1.8", strokeLinecap: "round", strokeLinejoin: "round" }) }),
+                      /* @__PURE__ */ jsx("span", { children: "commit" })
+                    ]
+                  }
+                )
+              ] })
+            ] }) : /* @__PURE__ */ jsx("div", { className: "gm-scroll", children: /* @__PURE__ */ jsx(
               FileTree,
               {
                 files,
@@ -1440,7 +1720,13 @@ function RepoWorkspace({
                 selected: selectedFile,
                 expanded: treeExpanded,
                 onToggleDir: (dir) => setTreeExpanded((prev) => ({ ...prev, [dir]: !(prev[dir] ?? false) })),
-                onSelect: (p) => void openFile(p)
+                onSelect: (p) => void openFile(p),
+                onAdd: (p) => {
+                  void api.addPaths(repo.path, [p]).then(() => {
+                    onToast(`已 add ${p}`);
+                    return refreshStatus();
+                  }).catch((e) => onToast(e.message, true));
+                }
               }
             ) })
           ] }) : /* @__PURE__ */ jsxs(Fragment, { children: [
@@ -1739,27 +2025,57 @@ function FileTree({
   onToggleDir,
   onSelect,
   showStatusLabel,
-  defaultOpen
+  defaultOpen,
+  onAdd
 }) {
   const tree = useMemo(() => buildTree(files), [files]);
+  const canAdd = (st) => st === "untracked" || st === "not-added" || st === "deleted";
   const renderDir = (dir, depth, isRoot = false) => {
     const open = isRoot ? true : expanded[dir.path] ?? defaultOpen ?? false;
     const pad = 4 + depth * 14;
     return /* @__PURE__ */ jsxs("div", { children: [
-      dir.name ? /* @__PURE__ */ jsxs(
-        "button",
-        {
-          className: "gm-file-row gm-dir-row",
-          style: { paddingLeft: pad },
-          onClick: () => onToggleDir(dir.path),
-          title: dir.path,
-          children: [
-            /* @__PURE__ */ jsx("span", { className: "gm-tree-gutter", children: /* @__PURE__ */ jsx(IconChevron, { open }) }),
-            /* @__PURE__ */ jsx(IconFolder, { open }),
-            /* @__PURE__ */ jsx("span", { className: "gm-dir-name", children: dir.name })
-          ]
-        }
-      ) : null,
+      dir.name ? (() => {
+        const dirSt = statusByPath.get(dir.path);
+        return /* @__PURE__ */ jsxs(
+          "button",
+          {
+            className: cx(
+              "gm-file-row gm-dir-row",
+              dirSt === "ignored" && "st-ignored"
+            ),
+            style: { paddingLeft: pad },
+            onClick: () => onToggleDir(dir.path),
+            title: dir.path,
+            children: [
+              /* @__PURE__ */ jsx("span", { className: "gm-tree-gutter", children: /* @__PURE__ */ jsx(IconChevron, { open }) }),
+              /* @__PURE__ */ jsx(IconFolder, { open }),
+              /* @__PURE__ */ jsx(
+                "span",
+                {
+                  className: cx(
+                    "gm-dir-name",
+                    dirSt ? statusClass(dirSt) : ""
+                  ),
+                  children: dir.name
+                }
+              ),
+              onAdd && canAdd(dirSt) && /* @__PURE__ */ jsx(
+                "button",
+                {
+                  className: "gm-row-add",
+                  title: "git add",
+                  onClick: (e) => {
+                    var _a;
+                    (_a = e.stopPropagation) == null ? void 0 : _a.call(e);
+                    onAdd(dir.path);
+                  },
+                  children: /* @__PURE__ */ jsx(IconPlus, {})
+                }
+              )
+            ]
+          }
+        );
+      })() : null,
       open && /* @__PURE__ */ jsxs(Fragment, { children: [
         dir.dirs.map((d) => renderDir(d, dir.name ? depth + 1 : 0, false)),
         dir.files.map((f) => {
@@ -1776,6 +2092,19 @@ function FileTree({
                 /* @__PURE__ */ jsx("span", { className: "gm-tree-gutter", "aria-hidden": true, children: " " }),
                 /* @__PURE__ */ jsx(IconFile, {}),
                 /* @__PURE__ */ jsx("span", { className: cx("gm-file-name", st ? statusClass(st) : ""), children: base }),
+                onAdd && canAdd(st) && /* @__PURE__ */ jsx(
+                  "button",
+                  {
+                    className: "gm-row-add",
+                    title: "git add",
+                    onClick: (e) => {
+                      var _a;
+                      (_a = e.stopPropagation) == null ? void 0 : _a.call(e);
+                      onAdd(f);
+                    },
+                    children: /* @__PURE__ */ jsx(IconPlus, {})
+                  }
+                ),
                 showStatusLabel && st && st !== "clean" && /* @__PURE__ */ jsx("span", { className: "gm-file-st-label", children: statusLabel(st) })
               ]
             },

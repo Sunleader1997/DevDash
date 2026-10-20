@@ -525,6 +525,10 @@ function RepoWorkspace({
   const [treeExpanded, setTreeExpanded] = useState<Record<string, boolean>>({})
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [opened, setOpened] = useState<OpenedFile | null>(null)
+  const [commitMode, setCommitMode] = useState(false)
+  const [commitChecked, setCommitChecked] = useState<Set<string>>(new Set())
+  const [commitMsg, setCommitMsg] = useState('')
+  const [committing, setCommitting] = useState(false)
   const [commits, setCommits] = useState<CommitInfo[]>([])
   const [selectedCommit, setSelectedCommit] = useState<CommitInfo | null>(null)
   const [commitFiles, setCommitFiles] = useState<DiffFileInfo[]>([])
@@ -536,8 +540,41 @@ function RepoWorkspace({
   const statusByPath = useMemo(() => {
     const map = new Map<string, StatusEntry['status']>()
     for (const s of status) map.set(s.path, s.status)
+
+    // Only mark a directory ignored when it is itself ignored, or every child file is ignored.
+    const isIgnored = (p: string) => map.get(p) === 'ignored'
+    const dirToFiles = new Map<string, string[]>()
+    for (const f of files) {
+      const parts = f.split('/')
+      for (let i = 1; i < parts.length; i++) {
+        const dir = parts.slice(0, i).join('/')
+        const list = dirToFiles.get(dir)
+        if (list) list.push(f)
+        else dirToFiles.set(dir, [f])
+      }
+    }
+    for (const [dir, list] of dirToFiles) {
+      if (isIgnored(dir)) {
+        for (const f of list) map.set(f, 'ignored')
+        continue
+      }
+      if (list.length > 0 && list.every((f) => isIgnored(f))) {
+        map.set(dir, 'ignored')
+      }
+    }
+    // Propagate ignored from ignored dirs down
+    for (const f of files) {
+      const parts = f.split('/')
+      for (let i = 0; i < parts.length - 1; i++) {
+        const prefix = parts.slice(0, i + 1).join('/')
+        if (map.get(prefix) === 'ignored') {
+          map.set(f, 'ignored')
+          break
+        }
+      }
+    }
     return map
-  }, [status])
+  }, [status, files])
 
   // Hydrate UI state from project .devDash
   useEffect(() => {
@@ -773,6 +810,55 @@ function RepoWorkspace({
     }
   }
 
+  const commitableFiles = useMemo(() => {
+    return files.filter((f) => {
+      const st = statusByPath.get(f)
+      return st && st !== 'clean' && st !== 'ignored'
+    })
+  }, [files, statusByPath])
+
+  const allChecked =
+    commitableFiles.length > 0 && commitableFiles.every((f) => commitChecked.has(f))
+
+  const toggleCommit = (path: string) => {
+    setCommitChecked((prev) => {
+      const next = new Set(prev)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
+    })
+  }
+
+  const toggleAllCommit = () => {
+    setCommitChecked(allChecked ? new Set() : new Set(commitableFiles))
+  }
+
+  const runCommit = async () => {
+    const paths = commitableFiles.filter((f) => commitChecked.has(f))
+    if (!commitMsg.trim()) {
+      onToast('请输入 commit message', true)
+      return
+    }
+    if (paths.length === 0) {
+      onToast('请勾选要提交的文件', true)
+      return
+    }
+    setCommitting(true)
+    try {
+      await api.tasks('commit', '提交变更', () => api.commit(repo.path, commitMsg.trim(), paths))
+      onToast('提交成功')
+      setCommitMsg('')
+      setCommitChecked(new Set())
+      setCommitMode(false)
+      await refreshStatus()
+      await refreshLog()
+    } catch (e) {
+      onToast((e as Error).message, true)
+    } finally {
+      setCommitting(false)
+    }
+  }
+
   return (
     <>
       <header className="gm-titlebar">
@@ -830,19 +916,132 @@ function RepoWorkspace({
         <div className="gm-panel">
           {view === 'files' ? (
             <>
-              <div className="gm-panel-header">文件目录</div>
-              <div className="gm-scroll">
-                <FileTree
-                  files={files}
-                  statusByPath={statusByPath}
-                  selected={selectedFile}
-                  expanded={treeExpanded}
-                  onToggleDir={(dir) =>
-                    setTreeExpanded((prev) => ({ ...prev, [dir]: !(prev[dir] ?? false) }))
-                  }
-                  onSelect={(p) => void openFile(p)}
-                />
+              <div className="gm-panel-header gm-panel-header-row">
+                <span>文件目录</span>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <button
+                    className={cx('gm-btn icon', commitMode && 'primary')}
+                    title="提交模式"
+                    aria-label="Commit"
+                    onClick={() => {
+                      setCommitMode((v) => !v)
+                      if (!commitMode) {
+                        // default-check all changeable files
+                        setCommitChecked(
+                          new Set(
+                            files.filter((f) => {
+                              const st = statusByPath.get(f)
+                              return st && st !== 'clean' && st !== 'ignored'
+                            })
+                          )
+                        )
+                      } else {
+                        setCommitChecked(new Set())
+                      }
+                    }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden>
+                      <circle cx="8" cy="8" r="2.2" fill="currentColor" />
+                      <path d="M8 2v3.2M8 10.8V14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                  <button
+                    className="gm-btn icon"
+                    title="刷新 Git 状态"
+                    aria-label="刷新"
+                    onClick={() => {
+                      void refreshStatus()
+                      void refreshBranches()
+                      void refreshLog()
+                    }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden>
+                      <path
+                        d="M13 8a5 5 0 1 1-1.5-3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                      />
+                      <path d="M13 2v3h-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                </div>
               </div>
+              {commitMode ? (
+                <div className="gm-commit-panel">
+                  <label className="gm-commit-all">
+                    <input type="checkbox" checked={allChecked} onChange={toggleAllCommit} />
+                    <span>全选</span>
+                    <span className="muted">
+                      {commitChecked.size}/{commitableFiles.length}
+                    </span>
+                  </label>
+                  <div className="gm-scroll">
+                    {commitableFiles.length === 0 && (
+                      <div className="gm-empty">无变更文件</div>
+                    )}
+                    {commitableFiles.map((f) => {
+                      const st = statusByPath.get(f)
+                      const name = f.split('/').pop() ?? f
+                      const dir = f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : ''
+                      return (
+                        <label key={f} className="gm-commit-row" title={f}>
+                          <input
+                            type="checkbox"
+                            checked={commitChecked.has(f)}
+                            onChange={() => toggleCommit(f)}
+                          />
+                          <span className={cx('gm-file-name', st ? statusClass(st) : '')}>{name}</span>
+                          {dir && <span className="gm-commit-dir">{dir}</span>}
+                        </label>
+                      )
+                    })}
+                  </div>
+                  <div className="gm-commit-form">
+                    <input
+                      placeholder="commit message"
+                      value={commitMsg}
+                      onChange={(e) => setCommitMsg(e.target.value)}
+                      onKeyDown={(e) => {
+                        if ((e as { key?: string }).key === 'Enter') void runCommit()
+                      }}
+                    />
+                    <button
+                      className="gm-btn primary"
+                      disabled={committing || !commitMsg.trim() || commitChecked.size === 0}
+                      onClick={() => void runCommit()}
+                    >
+                      <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden>
+                        <path d="M3 8.5l3.5 3.5L13 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      <span>commit</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="gm-scroll">
+                  <FileTree
+                    files={files}
+                    statusByPath={statusByPath}
+                    selected={selectedFile}
+                    expanded={treeExpanded}
+                    onToggleDir={(dir) =>
+                      setTreeExpanded((prev) => ({ ...prev, [dir]: !(prev[dir] ?? false) }))
+                    }
+                    onSelect={(p) => void openFile(p)}
+                    onAdd={(p) => {
+                      void api
+                        .addPaths(repo.path, [p])
+                        .then(() => {
+                          onToast(`已 add ${p}`)
+                          return refreshStatus()
+                        })
+                        .catch((e: Error) => onToast(e.message, true))
+                    }}
+                  />
+                </div>
+              )}
             </>
           ) : (
             <>
@@ -1207,7 +1406,8 @@ function FileTree({
   onToggleDir,
   onSelect,
   showStatusLabel,
-  defaultOpen
+  defaultOpen,
+  onAdd
 }: {
   files: string[]
   statusByPath: Map<string, StatusEntry['status']>
@@ -1216,30 +1416,57 @@ function FileTree({
   onToggleDir: (dir: string) => void
   onSelect: (path: string) => void
   showStatusLabel?: boolean
-  /** When true, folders start expanded (e.g. history commit files). */
   defaultOpen?: boolean
+  onAdd?: (path: string) => void
 }): JSX.Element {
   const tree = useMemo(() => buildTree(files), [files])
+  const canAdd = (st?: StatusEntry['status']) =>
+    st === 'untracked' || st === 'not-added' || st === 'deleted'
 
   const renderDir = (dir: TreeDir, depth: number, isRoot = false): JSX.Element => {
     const open = isRoot ? true : (expanded[dir.path] ?? defaultOpen ?? false)
     const pad = 4 + depth * 14
     return (
       <div key={dir.path || '__root__'}>
-        {dir.name ? (
-          <button
-            className="gm-file-row gm-dir-row"
-            style={{ paddingLeft: pad }}
-            onClick={() => onToggleDir(dir.path)}
-            title={dir.path}
-          >
-            <span className="gm-tree-gutter">
-              <IconChevron open={open} />
-            </span>
-            <IconFolder open={open} />
-            <span className="gm-dir-name">{dir.name}</span>
-          </button>
-        ) : null}
+        {dir.name ? (() => {
+          const dirSt = statusByPath.get(dir.path)
+          return (
+            <button
+              className={cx(
+                'gm-file-row gm-dir-row',
+                dirSt === 'ignored' && 'st-ignored'
+              )}
+              style={{ paddingLeft: pad }}
+              onClick={() => onToggleDir(dir.path)}
+              title={dir.path}
+            >
+              <span className="gm-tree-gutter">
+                <IconChevron open={open} />
+              </span>
+              <IconFolder open={open} />
+              <span
+                className={cx(
+                  'gm-dir-name',
+                  dirSt ? statusClass(dirSt) : ''
+                )}
+              >
+                {dir.name}
+              </span>
+              {onAdd && canAdd(dirSt) && (
+                <button
+                  className="gm-row-add"
+                  title="git add"
+                  onClick={(e) => {
+                    e.stopPropagation?.()
+                    onAdd(dir.path)
+                  }}
+                >
+                  <IconPlus />
+                </button>
+              )}
+            </button>
+          )
+        })() : null}
         {open && (
           <>
             {dir.dirs.map((d) => renderDir(d, dir.name ? depth + 1 : 0, false))}
@@ -1259,6 +1486,18 @@ function FileTree({
                   </span>
                   <IconFile />
                   <span className={cx('gm-file-name', st ? statusClass(st) : '')}>{base}</span>
+                  {onAdd && canAdd(st) && (
+                    <button
+                      className="gm-row-add"
+                      title="git add"
+                      onClick={(e) => {
+                        e.stopPropagation?.()
+                        onAdd(f)
+                      }}
+                    >
+                      <IconPlus />
+                    </button>
+                  )}
                   {showStatusLabel && st && st !== 'clean' && (
                     <span className="gm-file-st-label">{statusLabel(st)}</span>
                   )}

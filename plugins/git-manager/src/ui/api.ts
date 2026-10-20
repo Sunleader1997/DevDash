@@ -23,6 +23,9 @@ export const api = {
   repoInfo: (repoPath: string) => invoke<RepoInfo>('git:repo-info', repoPath),
   status: (repoPath: string) => invoke<StatusEntry[]>('git:status', repoPath),
   listFiles: (repoPath: string) => invoke<string[]>('git:list-files', repoPath),
+  addPaths: (repoPath: string, paths: string[]) => invoke<void>('git:add', repoPath, paths),
+  commit: (repoPath: string, message: string, paths?: string[]) =>
+    invoke<string>('git:commit', repoPath, message, paths),
   branches: (repoPath: string) => invoke<BranchInfo[]>('git:branches', repoPath),
   checkout: (repoPath: string, branch: string) => invoke<void>('git:checkout', repoPath, branch),
   log: (repoPath: string, limit?: number, skip?: number) => invoke<CommitInfo[]>('git:log', repoPath, limit, skip),
