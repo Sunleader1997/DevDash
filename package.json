@@ -1,0 +1,37 @@
+{
+  "name": "devdash",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Plugin-based cross-platform developer dashboard (Electron)",
+  "main": "out/main/index.js",
+  "workspaces": [
+    "plugins/*"
+  ],
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "npm run build:plugins && electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "build:plugins": "node scripts/build-plugins.mjs",
+    "ensure:electron": "node scripts/ensure-electron.mjs",
+    "postinstall": "npm run build:plugins && npm run ensure:electron"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^34.3.0",
+    "electron-vite": "^3.0.0",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.1"
+  },
+  "allowScripts": {
+    "electron": true,
+    "esbuild": true
+  }
+}

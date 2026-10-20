@@ -1,0 +1,6 @@
+{
+  "name": "devdash-plugins",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Install additional DevDash plugins into this folder via npm; the host discovers packages with a `devdash` manifest field."
+}
