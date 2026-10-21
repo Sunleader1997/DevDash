@@ -1,6 +1,12 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { app } from 'electron'
+
+let userDataDir = ''
+
+/** Injected by plugin main activate() — keeps this module free of electron. */
+export function setUserDataDir(dir: string): void {
+  userDataDir = dir
+}
 
 export interface GitManagerSettings {
   /** Extensions allowed to open as text without prompt (lowercase, no dot). */
@@ -29,7 +35,7 @@ export const DEFAULT_SETTINGS: GitManagerSettings = {
 }
 
 function settingsFile(): string {
-  return path.join(app.getPath('userData'), 'git-manager-settings.json')
+  return path.join(userDataDir, 'git-manager-settings.json')
 }
 
 export class SettingsStore {

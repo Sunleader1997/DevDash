@@ -248,6 +248,40 @@ export class GitService {
     await git(repoPath, ['add', '--', ...paths])
   }
 
+  /** Discard uncommitted changes under paths (checkout HEAD + remove untracked). */
+  async revertPaths(repoPath: string, paths: string[]): Promise<void> {
+    if (!paths.length) return
+    const targets = paths
+      .map((p) => p.replace(/\\/g, '/').replace(/^\/+/, ''))
+      .filter(Boolean)
+    for (const p of targets) {
+      this.resolveRepoFile(repoPath, p)
+    }
+
+    // Files present at HEAD under these paths → restore index + worktree.
+    const inHead = await git(repoPath, [
+      'ls-tree',
+      '-r',
+      '-z',
+      '--name-only',
+      'HEAD',
+      '--',
+      ...targets
+    ]).catch(() => '')
+    const headFiles = inHead.split('\0').filter(Boolean)
+    if (headFiles.length) {
+      await git(repoPath, ['checkout', 'HEAD', '--', ...headFiles])
+    }
+
+    // Staged-new (not in HEAD) → unstage so clean can remove them.
+    await git(repoPath, ['reset', '-q', 'HEAD', '--', ...targets]).catch(() => {
+      /* unborn / empty index */
+    })
+
+    // Remaining untracked under path: delete (same as discard-all in GUIs).
+    await git(repoPath, ['clean', '-fd', '--', ...targets])
+  }
+
   async commit(repoPath: string, message: string, paths?: string[]): Promise<string> {
     const args = ['commit', '-m', message]
     if (paths && paths.length) {

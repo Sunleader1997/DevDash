@@ -15,18 +15,22 @@ description: DevDash 插件应用开发规范与工程约定。Use when adding o
 
 ```
 DevDash/
-├── src/main/          # 窗口、插件注册表、gitService、gitlabClient、store
+├── src/main/          # 窗口、插件注册表、plugin protocol、通用 fs/shell/store
 ├── src/preload/       # IPC 白名单 bridge → window.devdash
 ├── src/renderer/      # 宿主壳：侧栏、footer 任务、title 栏、插件宿主
 └── plugins/<name>/    # npm workspace 子应用
-    ├── package.json   # 含 devdash 清单
+    ├── package.json   # 含 devdash 清单（id / ui / main / ipc）
     ├── vite.config.ts # 构建 ui.js / main.js
-    └── src/ui|main
+    └── src/
+        ├── main.ts    # activate(ctx).registerIpc — 领域 IPC
+        ├── git|gitlab|store/  # 领域实现（git-manager）
+        └── ui/
 ```
 
-- **main**：`plugin/registry.ts` 扫描 `plugins/*/package.json` 与 `plugins/node_modules/**`。
+- **main**：`plugin/registry.ts` 扫描 `plugins/*/package.json` 与 `plugins/node_modules/**`，加载插件 `main` 并校验 IPC 后缀。
 - **renderer**：`App.tsx` 通过 `devdash-plugin://<id>/dist/ui.js` 动态 `import` 插件。
 - **React 注入**：插件构建把 `react` / `react/jsx-runtime` alias 到 `src/ui/host-react.ts`、`host-jsx-runtime.ts`，运行时读 `globalThis.DevDashHost.React`（宿主 `main.tsx` 注入）。
+- **领域边界**：`git`/`gitlab`/打开策略 settings 等插件业务在插件包内；宿主只留平台能力。
 
 ## 插件清单
 
@@ -39,12 +43,14 @@ DevDash/
     "icon": "git-branch",
     "ui": "dist/ui.js",
     "main": "dist/main.js",
-    "order": 10
+    "order": 10,
+    "ipc": ["git:status", "gitlab:create-mr", "settings:get"]
   }
 }
 ```
 
 - `id` 全局唯一；`ui`/`main` 为包内相对路径（构建产物）。
+- `ipc` 为插件通道**后缀**白名单；完整通道名为 `plugin:<id>:<suffix>`。
 - 新插件放入 `plugins/<name>`，并在 `plugins` workspaces 自动被扫描；用 `npm run build:plugins` 构建。
 
 ## 插件 UI 入口契约
@@ -59,17 +65,20 @@ DevDash/
 }
 ```
 
-- 通过 `DevDashHost.ipc.invoke(channel, ...args)` 调主进程；通道必须在 `src/preload/index.ts` 白名单。
+- 通过 `DevDashHost.ipc.invoke(channel, ...args)` 调主进程；插件领域通道必须是 `plugin:<id>:<suffix>`，后缀在清单 `devdash.ipc` 中声明，并在 `main.ts` 的 `activate(ctx)` 里 `ctx.registerIpc(suffix, handler)`。
+- 宿主平台通道（不经前缀）：`plugin:list`、`fs:*`、`shell:*`、`store:*`、`window:*`。
 - 长任务用 `DevDashHost.tasks.run(id, label, fn)`，底部任务条可见。
 - 项目级持久化用 `store:read` / `store:patch`（写入 `<project>/.devDash/ui-state.json` 并维护 `.gitignore`）。
 
 ## IPC 与安全
 
-新增通道时同步修改：
+新增插件通道时同步修改：
 
-1. `src/main/ipc.ts` — handler  
-2. `src/preload/index.ts` — allowed 列表  
-3. 插件 `api.ts` — 封装  
+1. `package.json` — `devdash.ipc` 后缀  
+2. 插件 `main.ts` — `registerIpc(suffix, handler)`  
+3. 插件 `api.ts` — 封装（`plugin:<id>:` 前缀）  
+
+宿主静态通道才改 `src/main/ipc.ts` + `src/preload/index.ts`。
 
 安全约定：
 
@@ -77,6 +86,8 @@ DevDash/
 - `git diff` 的 `range` 白名单字符且禁止以 `-` 开头（防 `--output=`）。
 - 未跟踪文件：`git diff HEAD -- path` 可能成功且空，用 `ls-files --error-unmatch` 判断。
 - 根提交 diff 用 empty-tree：`4b825dc642cb6eb9a060e54bf8d69288fbee4904`。
+- `fs:probe-file` / `fs:read-text-file` 的打开策略由调用方传入；宿主保留 200MB 硬上限。
+- 插件 `main` 与宿主同进程；装进 `plugins/` 即与宿主同权。
 
 ## Git 管理插件 UI 约定
 
@@ -104,5 +115,5 @@ npm run dev
 ## Examples
 
 - 「给 DevDash 加个新的 xx 插件」→ 在 `plugins/xx` 建清单 + vite lib 构建 ui/main，宿主侧栏自动出现。
-- 「Git 树颜色不对」→ 改 `gitService.classifyPorcelain` 与插件 `styles.ts` 的 `st-*` 仅作用于文字。
+- 「Git 树颜色不对」→ 改 `plugins/git-manager/src/git/gitService.ts` 的 `classifyPorcelain` 与插件 `styles.ts` 的 `st-*` 仅作用于文字。
 - 「提交历史点文件没 Diff」→ 用 commit 的 patch（`openFromCommit`），不要走工作区 `diff HEAD`。

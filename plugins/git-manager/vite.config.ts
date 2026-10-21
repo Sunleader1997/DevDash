@@ -25,7 +25,7 @@ export default defineConfig({
       fileName: (_format, entryName) => `${entryName}.js`
     },
     rollupOptions: {
-      external: [],
+      external: ['electron', /^node:/],
       output: {
         inlineDynamicImports: false
       }

@@ -4,7 +4,9 @@ import type {
   BranchInfo,
   CommitInfo,
   DiffFileInfo,
+  GitLabDefaults,
   GitLabMember,
+  GitLabRepoConfig,
   GitLabSettings,
   MrFormCache,
   RepoInfo,
@@ -220,6 +222,15 @@ function IconMenuIgnore(): JSX.Element {
     <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden>
       <circle cx="8" cy="8" r="5.2" fill="none" stroke="currentColor" strokeWidth="1.3" />
       <path d="M4.5 11.5l7-7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function IconMenuRevert(): JSX.Element {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden>
+      <path d="M3.5 7.5A5 5 0 118 13" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path d="M3.5 4v3.5H7" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -631,7 +642,13 @@ function GitManagerApp(): JSX.Element {
   )
 }
 
-/** Global (plugin-wide) open policy: whitelist + max file size. */
+/** Global (plugin-wide) open policy + GitLab default config. */
+const GLOBAL_SETTINGS_SECTIONS = [
+  { id: 'open-policy', title: '打开策略', subtitle: '文件白名单与大小上限' },
+  { id: 'gitlab-connection', title: 'GitLab 连接', subtitle: 'baseUrl / token / projectPath' },
+  { id: 'gitlab-people', title: '默认指派', subtitle: 'Assignee / Reviewer' }
+] as const
+
 function GlobalSettingsPanel({
   onClose,
   onToast
@@ -643,6 +660,32 @@ function GlobalSettingsPanel({
   const [defaults, setDefaults] = useState<string[]>([])
   const [maxMb, setMaxMb] = useState(10)
   const [draftExt, setDraftExt] = useState('')
+  const [activeSection, setActiveSection] = useState<string>(GLOBAL_SETTINGS_SECTIONS[0].id)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const sectionRefs = useRef<Record<string, HTMLElement | null>>({})
+  const [gl, setGl] = useState<GitLabDefaults>({
+    baseUrl: '',
+    token: '',
+    projectPath: '',
+    assignees: [],
+    reviewers: [],
+    assigneeNames: [],
+    reviewerNames: []
+  })
+  const [members, setMembers] = useState<GitLabMember[]>([])
+  const [glSaved, setGlSaved] = useState(false)
+
+  const loadMembers = async (s: GitLabSettings) => {
+    if (s.baseUrl && s.token && s.projectPath) {
+      try {
+        setMembers(await api.gitlabMembers(s))
+        return
+      } catch {
+        /* ignore */
+      }
+    }
+    setMembers([])
+  }
 
   useEffect(() => {
     void (async () => {
@@ -651,11 +694,54 @@ function GlobalSettingsPanel({
         setWhitelist(s.textWhitelist)
         setDefaults(s.defaultWhitelist)
         setMaxMb(s.maxFileSizeMb)
+        const d = await api.gitlabDefaults()
+        setGl(d)
+        await loadMembers({
+          baseUrl: d.baseUrl,
+          token: d.token,
+          projectPath: d.projectPath,
+          assignees: d.assignees,
+          reviewers: d.reviewers,
+          assigneeNames: d.assigneeNames,
+          reviewerNames: d.reviewerNames,
+          overrides: []
+        })
       } catch (e) {
         onToast((e as Error).message, true)
       }
     })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Track which section is in view for the left index.
+  useEffect(() => {
+    const root = scrollRef.current
+    if (!root) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)
+        const id = visible[0]?.target.getAttribute('data-section')
+        if (id) setActiveSection(id)
+      },
+      { root, rootMargin: '-20% 0px -55% 0px', threshold: [0.15, 0.4, 0.75] }
+    )
+    for (const el of Object.values(sectionRefs.current)) {
+      if (el) observer.observe(el)
+    }
+    return () => observer.disconnect()
+  }, [])
+
+  const scrollToSection = (id: string) => {
+    const el = sectionRefs.current[id]
+    const root = scrollRef.current
+    if (!el || !root) return
+    setActiveSection(id)
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const top = el.offsetTop - 12
+    root.scrollTo({ top, behavior: reduce ? 'auto' : 'smooth' })
+  }
 
   const save = async () => {
     try {
@@ -663,99 +749,285 @@ function GlobalSettingsPanel({
         textWhitelist: whitelist,
         maxFileSizeMb: Math.max(1, Math.min(200, maxMb))
       })
-      onToast('全局设置已保存')
-      onClose()
+      onToast('文件策略已保存')
+    } catch (e) {
+      onToast((e as Error).message, true)
+    }
+  }
+
+  const saveGitlab = async () => {
+    try {
+      const next = await api.saveGitlabDefaults({
+        ...gl,
+        assigneeNames: members.filter((m) => gl.assignees.includes(m.id)).map((m) => m.username),
+        reviewerNames: members.filter((m) => gl.reviewers.includes(m.id)).map((m) => m.username)
+      })
+      setGl(next)
+      await loadMembers({
+        baseUrl: next.baseUrl,
+        token: next.token,
+        projectPath: next.projectPath,
+        assignees: next.assignees,
+        reviewers: next.reviewers,
+        assigneeNames: next.assigneeNames,
+        reviewerNames: next.reviewerNames,
+        overrides: []
+      })
+      setGlSaved(true)
+      window.setTimeout(() => setGlSaved(false), 2000)
+      onToast('GitLab 默认已保存')
     } catch (e) {
       onToast((e as Error).message, true)
     }
   }
 
   return (
-    <div className="gm-settings-page">
-      <div className="gm-settings-card">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h2>全局设置</h2>
-          <button className="gm-btn ghost" title="关闭" onClick={onClose}>
+    <div className="gm-settings-layout">
+      <nav className="gm-settings-nav" aria-label="全局设置分区">
+        <div className="gm-settings-nav-head">
+          <div className="gm-settings-nav-title">全局设置</div>
+          <div className="gm-settings-nav-sub">按功能分区 · 右侧可滚动</div>
+        </div>
+        <div className="gm-settings-nav-list">
+          {GLOBAL_SETTINGS_SECTIONS.map((s, i) => (
+            <button
+              key={s.id}
+              type="button"
+              className={cx('gm-settings-nav-item', activeSection === s.id && 'active')}
+              onClick={() => scrollToSection(s.id)}
+            >
+              <span className="gm-settings-nav-index">{String(i + 1).padStart(2, '0')}</span>
+              <span className="gm-settings-nav-text">
+                <span className="gm-settings-nav-label">{s.title}</span>
+                <span className="gm-settings-nav-desc">{s.subtitle}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      <div className="gm-settings-scroll" ref={scrollRef}>
+        <header className="gm-settings-top">
+          <div>
+            <h2>全局设置</h2>
+            <p className="gm-settings-desc">对所有仓库生效。分区保存，互不影响。</p>
+          </div>
+          <button className="gm-btn ghost icon" title="关闭" aria-label="关闭" onClick={onClose}>
             <IconClose />
           </button>
-        </div>
-        <p className="gm-settings-desc">文件直接打开白名单与大小上限（对所有仓库生效）。</p>
-        <div className="gm-field">
-          <label>文本直接打开白名单（扩展名 / 文件名）</label>
-          <div className="gm-chips" style={{ marginBottom: 8 }}>
-            {whitelist.map((e) => (
-              <button
-                key={e}
-                type="button"
-                className="gm-chip on"
-                title="点击移除"
-                onClick={() => setWhitelist((prev) => prev.filter((x) => x !== e))}
-              >
-                {e} ×
-              </button>
-            ))}
+        </header>
+
+        <section
+          id="open-policy"
+          data-section="open-policy"
+          ref={(el) => {
+            sectionRefs.current['open-policy'] = el
+          }}
+          className="gm-settings-card"
+        >
+          <div className="gm-settings-card-head">
+            <div>
+              <h2>打开策略</h2>
+              <p className="gm-settings-desc">文本直接打开白名单与大小上限。</p>
+            </div>
+            <button className="gm-btn primary" onClick={() => void save()}>
+              保存
+            </button>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              value={draftExt}
-              placeholder="添加扩展名，如 jsonc"
-              onChange={(e) => setDraftExt(e.target.value)}
-              onKeyDown={(e) => {
-                if ((e as { key?: string }).key === 'Enter') {
+
+          <div className="gm-field">
+            <label>文本直接打开白名单（扩展名 / 文件名）</label>
+            <div className="gm-chips" style={{ marginBottom: 8 }}>
+              {whitelist.map((e) => (
+                <button
+                  key={e}
+                  type="button"
+                  className="gm-chip on"
+                  title="点击移除"
+                  onClick={() => setWhitelist((prev) => prev.filter((x) => x !== e))}
+                >
+                  {e} ×
+                </button>
+              ))}
+            </div>
+            <div className="gm-settings-row">
+              <input
+                value={draftExt}
+                placeholder="添加扩展名，如 jsonc"
+                onChange={(e) => setDraftExt(e.target.value)}
+                onKeyDown={(e) => {
+                  if ((e as { key?: string }).key === 'Enter') {
+                    const v = draftExt.trim().replace(/^\./, '').toLowerCase()
+                    if (v && !whitelist.includes(v)) setWhitelist((p) => [...p, v])
+                    setDraftExt('')
+                  }
+                }}
+              />
+              <button
+                className="gm-btn"
+                onClick={() => {
                   const v = draftExt.trim().replace(/^\./, '').toLowerCase()
                   if (v && !whitelist.includes(v)) setWhitelist((p) => [...p, v])
                   setDraftExt('')
-                }
-              }}
+                }}
+              >
+                添加
+              </button>
+            </div>
+          </div>
+
+          <div className="gm-field">
+            <label>预置</label>
+            <div className="gm-chips">
+              <button type="button" className="gm-chip" onClick={() => setWhitelist([...defaults])}>
+                重置为预置
+              </button>
+              <button
+                type="button"
+                className="gm-chip"
+                onClick={() => setWhitelist((prev) => [...new Set([...prev, ...defaults])])}
+              >
+                合并预置
+              </button>
+            </div>
+          </div>
+
+          <div className="gm-field">
+            <label>最大直接打开文件大小（MB）</label>
+            <input
+              type="number"
+              min={1}
+              max={200}
+              value={maxMb}
+              onChange={(e) => setMaxMb(Number(e.target.value) || 10)}
             />
-            <button
-              className="gm-btn"
-              onClick={() => {
-                const v = draftExt.trim().replace(/^\./, '').toLowerCase()
-                if (v && !whitelist.includes(v)) setWhitelist((p) => [...p, v])
-                setDraftExt('')
-              }}
-            >
-              添加
+            <div className="gm-settings-hint">
+              超过此大小会提示确认，可强制以文本打开。默认 10 MB，硬上限 200 MB。
+            </div>
+          </div>
+        </section>
+
+        <section
+          id="gitlab-connection"
+          data-section="gitlab-connection"
+          ref={(el) => {
+            sectionRefs.current['gitlab-connection'] = el
+          }}
+          className="gm-settings-card"
+        >
+          <div className="gm-settings-card-head">
+            <div>
+              <h2>GitLab 连接</h2>
+              <p className="gm-settings-desc">
+                作为所有仓库的默认配置。仓库「设置」未填写时自动引用这里。
+              </p>
+            </div>
+            <button className="gm-btn primary" onClick={() => void saveGitlab()}>
+              保存
             </button>
           </div>
-        </div>
-        <div className="gm-field">
-          <label>预置</label>
-          <div className="gm-chips">
-            <button type="button" className="gm-chip" onClick={() => setWhitelist([...defaults])}>
-              重置为预置
-            </button>
-            <button
-              type="button"
-              className="gm-chip"
-              onClick={() => setWhitelist((prev) => [...new Set([...prev, ...defaults])])}
-            >
-              合并预置
+
+          <div className="gm-settings-grid">
+            <div className="gm-field">
+              <label>baseUrl</label>
+              <input
+                value={gl.baseUrl}
+                onChange={(e) => setGl((s) => ({ ...s, baseUrl: e.target.value }))}
+                placeholder="https://gitlab.com"
+              />
+            </div>
+            <div className="gm-field">
+              <label>token</label>
+              <input
+                type="password"
+                value={gl.token}
+                onChange={(e) => setGl((s) => ({ ...s, token: e.target.value }))}
+                placeholder="personal access token"
+              />
+            </div>
+            <div className="gm-field gm-settings-span">
+              <label>projectPath（默认 / 拉取成员）</label>
+              <input
+                value={gl.projectPath}
+                onChange={(e) => setGl((s) => ({ ...s, projectPath: e.target.value }))}
+                placeholder="group/repo"
+              />
+              <div className="gm-settings-hint">
+                仓库未配置 projectPath 时回落到此值；并用于拉取成员列表。
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section
+          id="gitlab-people"
+          data-section="gitlab-people"
+          ref={(el) => {
+            sectionRefs.current['gitlab-people'] = el
+          }}
+          className="gm-settings-card"
+        >
+          <div className="gm-settings-card-head">
+            <div>
+              <h2>默认指派</h2>
+              <p className="gm-settings-desc">创建 MR 时的默认 Assignee / Reviewer。</p>
+            </div>
+            <button className="gm-btn primary" onClick={() => void saveGitlab()}>
+              保存
             </button>
           </div>
-        </div>
-        <div className="gm-field">
-          <label>最大直接打开文件大小（MB）</label>
-          <input
-            type="number"
-            min={1}
-            max={200}
-            value={maxMb}
-            onChange={(e) => setMaxMb(Number(e.target.value) || 10)}
-          />
-          <div style={{ color: 'var(--fg-secondary)', fontSize: 11, marginTop: 4 }}>
-            超过此大小会提示确认，可强制以文本打开。默认 10 MB。
+
+          <div className="gm-field">
+            <label>Assignee（默认）</label>
+            <div className="gm-chips">
+              {members.length === 0 && (
+                <span className="gm-settings-hint">配置连接与 projectPath 后可选择成员</span>
+              )}
+              {members.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  className={cx('gm-chip', gl.assignees.includes(m.id) && 'on')}
+                  onClick={() =>
+                    setGl((s) => ({
+                      ...s,
+                      assignees: s.assignees.includes(m.id)
+                        ? s.assignees.filter((x) => x !== m.id)
+                        : [...s.assignees, m.id]
+                    }))
+                  }
+                >
+                  {m.name || m.username}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-          <button className="gm-btn primary" onClick={() => void save()}>
-            保存
-          </button>
-          <button className="gm-btn" onClick={onClose}>
-            返回
-          </button>
-        </div>
+
+          <div className="gm-field">
+            <label>Reviewer（默认）</label>
+            <div className="gm-chips">
+              {members.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  className={cx('gm-chip', gl.reviewers.includes(m.id) && 'on')}
+                  onClick={() =>
+                    setGl((s) => ({
+                      ...s,
+                      reviewers: s.reviewers.includes(m.id)
+                        ? s.reviewers.filter((x) => x !== m.id)
+                        : [...s.reviewers, m.id]
+                    }))
+                  }
+                >
+                  {m.name || m.username}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {glSaved && <div className="gm-settings-ok">已保存</div>}
+        </section>
       </div>
     </div>
   )
@@ -1180,7 +1452,7 @@ function RepoWorkspace({
       </header>
 
       {view === 'settings' ? (
-        <ToolSettingsPage onToast={onToast} />
+        <ToolSettingsPage repoPath={repo.path} onToast={onToast} />
       ) : (
       <div
         className="gm-body"
@@ -1355,6 +1627,24 @@ function RepoWorkspace({
                         try {
                           await api.ignorePaths(repo.path, [p])
                           onToast(`已忽略 ${p}`)
+                        } catch (e) {
+                          onToast((e as Error).message, true)
+                        } finally {
+                          await refreshStatus()
+                        }
+                      })()
+                    }}
+                    onRevert={(p) => {
+                      if (!window.confirm(`回滚将丢弃「${p}」的未提交更改（含已 add 未 commit、未跟踪文件），不可恢复。继续？`)) {
+                        return
+                      }
+                      void (async () => {
+                        try {
+                          await api.tasks(`revert-${p}`, `回滚 ${p}`, () => api.revertPaths(repo.path, [p]))
+                          onToast(`已回滚 ${p}`)
+                          if (selectedFile === p || selectedFile?.startsWith(`${p}/`)) {
+                            setSelectedFile(null)
+                          }
                         } catch (e) {
                           onToast((e as Error).message, true)
                         } finally {
@@ -1628,111 +1918,260 @@ function FileBlocked({
 }
 
 function ToolSettingsPage({
+  repoPath,
   onToast
 }: {
+  repoPath: string
   onToast: (t: string, e?: boolean) => void
 }): JSX.Element {
   const [saved, setSaved] = useState(false)
-  const [gl, setGl] = useState<GitLabSettings>({ baseUrl: '', token: '', projectPath: '' })
+  const [defaults, setDefaults] = useState<GitLabDefaults>({
+    baseUrl: '',
+    token: '',
+    projectPath: '',
+    assignees: [],
+    reviewers: [],
+    assigneeNames: [],
+    reviewerNames: []
+  })
+  const [cfg, setCfg] = useState<GitLabRepoConfig>({})
+  const [resolved, setResolved] = useState<GitLabSettings | null>(null)
   const [members, setMembers] = useState<GitLabMember[]>([])
   const [assignees, setAssignees] = useState<number[]>([])
   const [reviewers, setReviewers] = useState<number[]>([])
+  const [dirtyPeople, setDirtyPeople] = useState(false)
+
+  const effective = resolved ?? {
+    baseUrl: cfg.baseUrl || defaults.baseUrl,
+    token: cfg.token || defaults.token,
+    projectPath: cfg.projectPath || defaults.projectPath,
+    assignees: [],
+    reviewers: [],
+    assigneeNames: [],
+    reviewerNames: [],
+    overrides: []
+  }
+
+  const loadMembers = async (s: GitLabSettings) => {
+    if (s.baseUrl && s.token && s.projectPath) {
+      try {
+        setMembers(await api.gitlabMembers(s))
+        return
+      } catch {
+        /* fall through */
+      }
+    }
+    setMembers([])
+  }
 
   useEffect(() => {
     void (async () => {
       try {
-        const g = await api.gitlabSettings()
-        setGl(g)
-        if (g.baseUrl && g.token && g.projectPath) {
-          try {
-            setMembers(await api.gitlabMembers(g))
-          } catch {
-            setMembers([])
-          }
-        }
+        const [d, c, r] = await Promise.all([
+          api.gitlabDefaults(),
+          api.gitlabRepoConfig(repoPath),
+          api.gitlabSettings(repoPath)
+        ])
+        setDefaults(d)
+        setCfg(c)
+        setResolved(r)
+        setAssignees(r.assignees)
+        setReviewers(r.reviewers)
+        setDirtyPeople(false)
+        await loadMembers(r)
       } catch (e) {
         onToast((e as Error).message, true)
       }
     })()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repoPath])
+
+  const refreshResolved = async () => {
+    const r = await api.gitlabSettings(repoPath)
+    setResolved(r)
+    return r
+  }
 
   const save = async () => {
     try {
-      await api.saveGitlabSettings(gl)
+      const payload: GitLabRepoConfig = {
+        projectPath: cfg.projectPath?.trim() || undefined,
+        baseUrl: cfg.baseUrl?.trim() || undefined,
+        token: cfg.token?.trim() || undefined
+      }
+      if (dirtyPeople) {
+        if (assignees.length) {
+          payload.assignees = assignees
+          payload.assigneeNames = members
+            .filter((m) => assignees.includes(m.id))
+            .map((m) => m.username)
+        }
+        if (reviewers.length) {
+          payload.reviewers = reviewers
+          payload.reviewerNames = members
+            .filter((m) => reviewers.includes(m.id))
+            .map((m) => m.username)
+        }
+      } else {
+        if (cfg.assignees?.length) {
+          payload.assignees = cfg.assignees
+          payload.assigneeNames = cfg.assigneeNames
+        }
+        if (cfg.reviewers?.length) {
+          payload.reviewers = cfg.reviewers
+          payload.reviewerNames = cfg.reviewerNames
+        }
+      }
+      const next = await api.saveGitlabRepoConfig(repoPath, payload)
+      setCfg(next)
+      const r = await refreshResolved()
+      setDirtyPeople(false)
+      await loadMembers(r)
       setSaved(true)
       window.setTimeout(() => setSaved(false), 2000)
-      onToast('GitLab 配置已保存')
+      onToast('仓库 GitLab 配置已保存')
     } catch (e) {
       onToast((e as Error).message, true)
     }
   }
 
+  const clearOverrides = async () => {
+    try {
+      const next = await api.saveGitlabRepoConfig(repoPath, {})
+      setCfg(next)
+      const r = await refreshResolved()
+      setAssignees(r.assignees)
+      setReviewers(r.reviewers)
+      setDirtyPeople(false)
+      await loadMembers(r)
+      onToast('已清除仓库覆盖，改用全局默认')
+    } catch (e) {
+      onToast((e as Error).message, true)
+    }
+  }
+
+  const hint = (value: string) => (value ? `全局默认：${value}` : '未配置全局默认')
+
   return (
     <div className="gm-settings-page">
       <div className="gm-settings-card">
-        <h2>GitLab 配置</h2>
-        <p className="gm-settings-desc">用于一键 MR 与成员选择。文件打开策略请用左下角「全局设置」。</p>
+        <h2>仓库 GitLab 配置</h2>
+        <p className="gm-settings-desc">
+          留空的字段会自动使用左下角「全局设置」中的默认值。项目路径按仓库填写；baseUrl / token / Assignee /
+          Reviewer 仅在需要覆盖默认时填写。
+        </p>
 
         <div className="gm-field">
-          <label>baseUrl</label>
+          <label>projectPath（本仓库）</label>
           <input
-            value={gl.baseUrl}
-            onChange={(e) => setGl((s) => ({ ...s, baseUrl: e.target.value }))}
-            placeholder="https://gitlab.com"
+            value={cfg.projectPath ?? ''}
+            onChange={(e) => setCfg((s) => ({ ...s, projectPath: e.target.value }))}
+            placeholder={hint(defaults.projectPath) === '未配置全局默认' ? 'group/repo' : hint(defaults.projectPath)}
           />
+          {!cfg.projectPath?.trim() && defaults.projectPath && (
+            <div style={{ color: 'var(--fg-secondary)', fontSize: 11, marginTop: 4 }}>
+              当前使用全局默认 projectPath：{defaults.projectPath}
+            </div>
+          )}
         </div>
         <div className="gm-field">
-          <label>token</label>
+          <label>baseUrl（覆盖，可选）</label>
+          <input
+            value={cfg.baseUrl ?? ''}
+            onChange={(e) => setCfg((s) => ({ ...s, baseUrl: e.target.value }))}
+            placeholder={defaults.baseUrl || 'https://gitlab.com'}
+          />
+          {!cfg.baseUrl?.trim() && (
+            <div style={{ color: 'var(--fg-secondary)', fontSize: 11, marginTop: 4 }}>
+              使用全局默认：{defaults.baseUrl || '未配置'}
+            </div>
+          )}
+        </div>
+        <div className="gm-field">
+          <label>token（覆盖，可选）</label>
           <input
             type="password"
-            value={gl.token}
-            onChange={(e) => setGl((s) => ({ ...s, token: e.target.value }))}
-            placeholder="personal access token"
+            value={cfg.token ?? ''}
+            onChange={(e) => setCfg((s) => ({ ...s, token: e.target.value }))}
+            placeholder={defaults.token ? '••••••（全局默认）' : 'personal access token'}
           />
+          {!cfg.token?.trim() && (
+            <div style={{ color: 'var(--fg-secondary)', fontSize: 11, marginTop: 4 }}>
+              使用全局默认 token{defaults.token ? '（已配置）' : '（未配置）'}
+            </div>
+          )}
         </div>
         <div className="gm-field">
-          <label>projectPath</label>
-          <input
-            value={gl.projectPath}
-            onChange={(e) => setGl((s) => ({ ...s, projectPath: e.target.value }))}
-            placeholder="group/repo"
-          />
-        </div>
-        <div className="gm-field">
-          <label>Assignee</label>
+          <label>
+            Assignee
+            {!cfg.assignees?.length && defaults.assignees.length > 0 && (
+              <span style={{ color: 'var(--fg-secondary)', fontWeight: 400 }}>
+                {' '}
+                · 使用全局默认 {defaults.assignees.length} 人
+              </span>
+            )}
+          </label>
           <div className="gm-chips">
             {members.length === 0 && (
-              <span style={{ color: 'var(--fg-secondary)', fontSize: 12 }}>保存后可拉取成员</span>
+              <span style={{ color: 'var(--fg-secondary)', fontSize: 12 }}>
+                {effective.baseUrl && effective.token && effective.projectPath
+                  ? '无法拉取成员'
+                  : '配置连接后可选择成员'}
+              </span>
             )}
             {members.map((m) => (
               <button
                 key={m.id}
                 type="button"
                 className={cx('gm-chip', assignees.includes(m.id) && 'on')}
-                onClick={() =>
+                onClick={() => {
+                  setDirtyPeople(true)
                   setAssignees((prev) =>
                     prev.includes(m.id) ? prev.filter((x) => x !== m.id) : [...prev, m.id]
                   )
-                }
+                }}
               >
                 {m.name || m.username}
               </button>
             ))}
           </div>
+          {dirtyPeople && (
+            <button
+              type="button"
+              className="gm-btn ghost"
+              style={{ marginTop: 6, fontSize: 12 }}
+              onClick={() => {
+                setAssignees(defaults.assignees)
+                setReviewers(defaults.reviewers)
+                setDirtyPeople(false)
+              }}
+            >
+              恢复全局默认人员
+            </button>
+          )}
         </div>
         <div className="gm-field">
-          <label>Reviewer</label>
+          <label>
+            Reviewer
+            {!cfg.reviewers?.length && defaults.reviewers.length > 0 && (
+              <span style={{ color: 'var(--fg-secondary)', fontWeight: 400 }}>
+                {' '}
+                · 使用全局默认 {defaults.reviewers.length} 人
+              </span>
+            )}
+          </label>
           <div className="gm-chips">
             {members.map((m) => (
               <button
                 key={m.id}
                 type="button"
                 className={cx('gm-chip', reviewers.includes(m.id) && 'on')}
-                onClick={() =>
+                onClick={() => {
+                  setDirtyPeople(true)
                   setReviewers((prev) =>
                     prev.includes(m.id) ? prev.filter((x) => x !== m.id) : [...prev, m.id]
                   )
-                }
+                }}
               >
                 {m.name || m.username}
               </button>
@@ -1740,12 +2179,20 @@ function ToolSettingsPage({
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
           <button className="gm-btn primary" onClick={() => void save()}>
             保存
           </button>
+          <button className="gm-btn" onClick={() => void clearOverrides()}>
+            清除覆盖
+          </button>
           {saved && <span style={{ color: 'var(--success)', fontSize: 12 }}>OK</span>}
         </div>
+        {resolved && resolved.overrides.length > 0 && (
+          <div style={{ color: 'var(--fg-secondary)', fontSize: 11, marginTop: 8 }}>
+            本仓库已覆盖：{resolved.overrides.join(' / ')}；其余字段使用全局默认。
+          </div>
+        )}
       </div>
     </div>
   )
@@ -1838,7 +2285,8 @@ function FileTree({
   showStatusLabel,
   defaultOpen,
   onAdd,
-  onIgnore
+  onIgnore,
+  onRevert
 }: {
   files: string[]
   statusByPath: Map<string, StatusEntry['status']>
@@ -1850,6 +2298,7 @@ function FileTree({
   defaultOpen?: boolean
   onAdd?: (path: string) => void
   onIgnore?: (path: string) => void
+  onRevert?: (path: string) => void
 }): JSX.Element {
   const tree = useMemo(() => buildTree(files), [files])
   const [menu, setMenu] = useState<{ path: string; x: number; y: number; isDir: boolean } | null>(null)
@@ -1975,7 +2424,7 @@ function FileTree({
   return (
     <div className="gm-file-tree">
       {renderDir(tree, 0, true)}
-      {menu && onIgnore && (
+      {menu && (onIgnore || onRevert) && (
         <>
           <div
             className="gm-menu-backdrop"
@@ -1989,15 +2438,29 @@ function FileTree({
             className="gm-dropdown gm-context-menu"
             style={{ left: menu.x, top: menu.y, minWidth: 120 }}
           >
-            <MenuItem
-              icon={<IconMenuIgnore />}
-              onClick={() => {
-                onIgnore(menu.path)
-                setMenu(null)
-              }}
-            >
-              忽略
-            </MenuItem>
+            {onIgnore && (
+              <MenuItem
+                icon={<IconMenuIgnore />}
+                onClick={() => {
+                  onIgnore(menu.path)
+                  setMenu(null)
+                }}
+              >
+                忽略
+              </MenuItem>
+            )}
+            {onRevert && (
+              <MenuItem
+                icon={<IconMenuRevert />}
+                danger
+                onClick={() => {
+                  onRevert(menu.path)
+                  setMenu(null)
+                }}
+              >
+                回滚
+              </MenuItem>
+            )}
           </div>
         </>
       )}
@@ -2114,7 +2577,7 @@ function MrPanel({
   const [newBranch, setNewBranch] = useState(() => newBranchName(repo.path))
   const [description, setDescription] = useState('')
   const [toBranch, setToBranch] = useState(repo.branch || 'main')
-  const [settings, setSettings] = useState<GitLabSettings>({ baseUrl: '', token: '', projectPath: '' })
+  const [settings, setSettings] = useState<GitLabSettings | null>(null)
   const [members, setMembers] = useState<GitLabMember[]>([])
   const [assignees, setAssignees] = useState<number[]>([])
   const [reviewers, setReviewers] = useState<number[]>([])
@@ -2122,7 +2585,7 @@ function MrPanel({
 
   useEffect(() => {
     void (async () => {
-      const s = await api.gitlabSettings()
+      const s = await api.gitlabSettings(repo.path)
       setSettings(s)
       const cache = await api.getMrCache(repo.path)
       if (cache) {
@@ -2134,6 +2597,9 @@ function MrPanel({
         setReviewers(cache.reviewers ?? [])
       } else {
         setTitle(`feature/${repo.name}`)
+        // No repo form cache → use resolved defaults (repo override or global).
+        setAssignees(s.assignees)
+        setReviewers(s.reviewers)
       }
       try {
         if (s.baseUrl && s.token && s.projectPath) {
@@ -2182,8 +2648,8 @@ function MrPanel({
     try {
       await persistCache()
       const s = settings
-      if (!s.baseUrl || !s.token || !s.projectPath) {
-        onToast('请先在「设置」中配置 GitLab 连接', true)
+      if (!s || !s.baseUrl || !s.token || !s.projectPath) {
+        onToast('请先在「全局设置」或仓库「设置」中配置 GitLab 连接', true)
         return
       }
       const created = await api.tasks('create-mr', '创建 MR', () =>
@@ -2220,9 +2686,9 @@ function MrPanel({
           </div>
           <div className="gm-field">
             <label>目标分支</label>
-            <select value={toBranch} onChange={(e) => setToBranch(e.target.value)}>
+            <select value={toBranch ?? ''} onChange={(e) => setToBranch(e.target.value)}>
               {[...new Set([repo.branch, ...branches.map((b) => b.name), 'main', 'master', 'develop'])]
-                .filter(Boolean)
+                .filter((n): n is string => Boolean(n))
                 .map((name) => (
                   <option key={name} value={name}>
                     {name}

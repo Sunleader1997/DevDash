@@ -1,11 +1,8 @@
 import { ipcMain, dialog, protocol, net, BrowserWindow, shell } from 'electron'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { gitService } from './git/gitService'
-import { gitlabClient, type GitLabSettings, type MrFormCache } from './gitlab/gitlabClient'
 import { pluginRegistry } from './plugin/registry'
 import { projectStore } from './store/projectStore'
-import { settingsStore, DEFAULT_TEXT_WHITELIST } from './store/settingsStore'
 import { promises as fs } from 'node:fs'
 
 const PLUGIN_SCHEME = 'devdash-plugin'
@@ -49,12 +46,34 @@ export function registerPluginProtocol(): void {
   })
 }
 
+interface OpenPolicy {
+  textWhitelist?: string[]
+  maxFileSizeMb?: number
+}
+
+const DEFAULT_MAX_FILE_MB = 10
+const HARD_MAX_READ_BYTES = 200 * 1024 * 1024
+
+function matchWhitelist(abs: string, whitelist: string[]): boolean {
+  const ext = path.extname(abs).replace(/^\./, '').toLowerCase()
+  const base = path.basename(abs).toLowerCase()
+  const baseNoDot = base.replace(/^\./, '')
+  const wl = whitelist.map((s) => s.toLowerCase())
+  return (
+    wl.includes(ext) ||
+    wl.includes(base) ||
+    wl.includes(baseNoDot) ||
+    base === 'dockerfile' ||
+    base.startsWith('dockerfile.') ||
+    baseNoDot === 'gitignore' ||
+    baseNoDot === 'gitattributes'
+  )
+}
+
 export function registerIpc(): void {
   ipcMain.handle('plugin:list', async () => {
     const list = await pluginRegistry.discover()
-    for (const meta of list) {
-      await pluginRegistry.loadMain(meta)
-    }
+    await pluginRegistry.loadAllMains()
     return list.map((m) => ({
       id: m.id,
       title: m.title,
@@ -82,23 +101,12 @@ export function registerIpc(): void {
     shell.showItemInFolder(p)
   })
 
-  ipcMain.handle('settings:get', async () => {
-    const s = await settingsStore.get()
-    return { ...s, defaultWhitelist: DEFAULT_TEXT_WHITELIST }
-  })
-  ipcMain.handle('settings:save', (_e, partial: { textWhitelist?: string[]; maxFileSizeMb?: number }) =>
-    settingsStore.save(partial ?? {})
-  )
-  ipcMain.handle('settings:add-whitelist-ext', (_e, ext: string) => settingsStore.addWhitelistExt(ext))
-
-  /** Probe a file for open policy (whitelist / size / binary). */
-  ipcMain.handle('fs:probe-file', async (_e, filePath: string) => {
+  /** Probe a file for open policy. Whitelist / size policy is caller-supplied. */
+  ipcMain.handle('fs:probe-file', async (_e, filePath: string, policy?: OpenPolicy) => {
     const abs = path.resolve(filePath)
-    const settings = await settingsStore.get()
+    const maxFileSizeMb = policy?.maxFileSizeMb ?? DEFAULT_MAX_FILE_MB
+    const whitelist = policy?.textWhitelist ?? []
     const ext = path.extname(abs).replace(/^\./, '').toLowerCase()
-    const base = path.basename(abs).toLowerCase()
-    // .gitignore → gitignore; also allow exact basename
-    const baseNoDot = base.replace(/^\./, '')
     let stat: import('node:fs').Stats
     try {
       stat = await fs.stat(abs)
@@ -111,7 +119,7 @@ export function registerIpc(): void {
         whitelisted: false,
         tooLarge: false,
         binary: false,
-        maxFileSizeMb: settings.maxFileSizeMb
+        maxFileSizeMb
       }
     }
     if (!stat.isFile()) {
@@ -123,10 +131,10 @@ export function registerIpc(): void {
         whitelisted: false,
         tooLarge: false,
         binary: true,
-        maxFileSizeMb: settings.maxFileSizeMb
+        maxFileSizeMb
       }
     }
-    const maxBytes = settings.maxFileSizeMb * 1024 * 1024
+    const maxBytes = maxFileSizeMb * 1024 * 1024
     let binary = false
     try {
       const fd = await fs.open(abs, 'r')
@@ -140,37 +148,23 @@ export function registerIpc(): void {
     } catch {
       binary = false
     }
-    const wl = settings.textWhitelist.map((s) => s.toLowerCase())
-    const whitelisted =
-      wl.includes(ext) ||
-      wl.includes(base) ||
-      wl.includes(baseNoDot) ||
-      base === 'dockerfile' ||
-      base.startsWith('dockerfile.') ||
-      baseNoDot === 'gitignore' ||
-      baseNoDot === 'gitattributes'
     return {
       path: abs,
       exists: true,
       size: stat.size,
       ext,
-      whitelisted,
+      whitelisted: matchWhitelist(abs, whitelist),
       tooLarge: stat.size > maxBytes,
       binary,
-      maxFileSizeMb: settings.maxFileSizeMb
+      maxFileSizeMb
     }
   })
 
   ipcMain.handle(
     'fs:read-text-file',
-    async (
-      _e,
-      filePath: string,
-      opts?: { force?: boolean; maxFileSizeMb?: number }
-    ) => {
+    async (_e, filePath: string, opts?: { force?: boolean; maxFileSizeMb?: number }) => {
       const abs = path.resolve(filePath)
-      const settings = await settingsStore.get()
-      const maxMb = opts?.maxFileSizeMb ?? settings.maxFileSizeMb
+      const maxMb = opts?.maxFileSizeMb ?? DEFAULT_MAX_FILE_MB
       const maxBytes = maxMb * 1024 * 1024
       await fs.access(abs)
       const stat = await fs.stat(abs)
@@ -178,67 +172,12 @@ export function registerIpc(): void {
       if (!opts?.force && stat.size > maxBytes) {
         throw new Error(`文件过大（${formatSize(stat.size)} > ${maxMb}MB），可强制打开`)
       }
-      if (stat.size > 200 * 1024 * 1024) {
+      if (stat.size > HARD_MAX_READ_BYTES) {
         throw new Error(`文件过大（${formatSize(stat.size)}），已拒绝读取`)
       }
       return fs.readFile(abs, 'utf8')
     }
   )
-
-  ipcMain.handle('git:find-repos', (_e, root: string, maxDepth?: number) => gitService.findRepos(root, maxDepth ?? 3))
-  ipcMain.handle('git:repo-info', (_e, repoPath: string) => gitService.getRepoInfo(repoPath))
-  ipcMain.handle('git:status', (_e, repoPath: string) => gitService.status(repoPath))
-  ipcMain.handle('git:list-files', (_e, repoPath: string) => gitService.listFiles(repoPath))
-  ipcMain.handle('git:add', (_e, repoPath: string, paths: string[]) => gitService.addPaths(repoPath, paths))
-  ipcMain.handle('git:ignore', (_e, repoPath: string, paths: string[]) => gitService.ignorePaths(repoPath, paths))
-  ipcMain.handle('git:commit', (_e, repoPath: string, message: string, paths?: string[]) =>
-    gitService.commit(repoPath, message, paths)
-  )
-  ipcMain.handle('git:push', (_e, repoPath: string, remote?: string, ref?: string) =>
-    gitService.push(repoPath, remote ?? 'origin', ref)
-  )
-  ipcMain.handle('git:pull', (_e, repoPath: string, remote?: string, branch?: string) =>
-    gitService.pull(repoPath, remote ?? 'origin', branch)
-  )
-  ipcMain.handle('git:unpushed', (_e, repoPath: string) => gitService.unpushedCommits(repoPath))
-  ipcMain.handle('git:branches', (_e, repoPath: string) => gitService.listBranches(repoPath))
-  ipcMain.handle('git:checkout', (_e, repoPath: string, branch: string) => gitService.checkout(repoPath, branch))
-  ipcMain.handle('git:log', (_e, repoPath: string, limit?: number, skip?: number) =>
-    gitService.log(repoPath, limit ?? 50, skip ?? 0)
-  )
-  ipcMain.handle('git:diff-files', (_e, repoPath: string, range?: string) => gitService.diffFiles(repoPath, range))
-  ipcMain.handle('git:working-diff-files', (_e, repoPath: string) => gitService.workingDiffFiles(repoPath))
-  ipcMain.handle('git:diff-file-patch', (_e, repoPath: string, filePath: string, range?: string) =>
-    gitService.diffFilePatch(repoPath, filePath, range)
-  )
-  ipcMain.handle('git:commit-files', (_e, repoPath: string, commitHash: string) =>
-    gitService.commitFiles(repoPath, commitHash)
-  )
-  ipcMain.handle('git:file-at-ref', (_e, repoPath: string, ref: string, filePath: string) =>
-    gitService.fileAtRef(repoPath, ref, filePath)
-  )
-
-  ipcMain.handle('gitlab:settings:get', () => gitlabClient.getSettings())
-  ipcMain.handle('gitlab:settings:save', (_e, settings: GitLabSettings) => gitlabClient.saveSettings(settings))
-  ipcMain.handle('gitlab:members', async (_e, settings: GitLabSettings) => gitlabClient.listMembers(settings))
-  ipcMain.handle(
-    'gitlab:create-mr',
-    (
-      _e,
-      settings: GitLabSettings,
-      payload: {
-        source_branch: string
-        target_branch: string
-        title: string
-        description?: string
-        assignee_ids?: number[]
-        reviewer_ids?: number[]
-      }
-    ) => gitlabClient.createMergeRequest(settings, payload)
-  )
-
-  ipcMain.handle('mr-config:get', (_e, repoPath: string) => gitlabClient.getMrCache(repoPath))
-  ipcMain.handle('mr-config:save', (_e, repoPath: string, cache: MrFormCache) => gitlabClient.saveMrCache(repoPath, cache))
 
   ipcMain.handle('store:read', (_e, projectPath: string) => projectStore.read(projectPath))
   ipcMain.handle('store:write', (_e, projectPath: string, state: Record<string, unknown>) =>

@@ -1,48 +1,43 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
+/**
+ * Allowed channels:
+ * 1) host platform channels (static)
+ * 2) plugin channels passed via additionalArguments after manifest discovery
+ */
+const HOST_CHANNELS = [
+  'plugin:list',
+  'fs:pick-directory',
+  'shell:open-path',
+  'shell:show-in-folder',
+  'fs:read-text-file',
+  'fs:probe-file',
+  'store:read',
+  'store:write',
+  'store:patch',
+  'window:minimize',
+  'window:maximize',
+  'window:close',
+  'window:is-maximized'
+]
+
+const allowed = new Set(HOST_CHANNELS)
+
+for (const arg of process.argv) {
+  if (!arg.startsWith('--devdash-ipc=')) continue
+  try {
+    const list = JSON.parse(arg.slice('--devdash-ipc='.length)) as unknown
+    if (Array.isArray(list)) {
+      for (const ch of list) {
+        if (typeof ch === 'string') allowed.add(ch)
+      }
+    }
+  } catch {
+    /* ignore malformed */
+  }
+}
+
 const invoke = (channel: string, ...args: unknown[]): Promise<unknown> => {
-  const allowed = new Set([
-    'plugin:list',
-    'fs:pick-directory',
-    'shell:open-path',
-    'shell:show-in-folder',
-    'fs:read-text-file',
-    'fs:probe-file',
-    'settings:get',
-    'settings:save',
-    'settings:add-whitelist-ext',
-    'git:find-repos',
-    'git:repo-info',
-    'git:status',
-    'git:list-files',
-    'git:add',
-    'git:ignore',
-    'git:commit',
-    'git:push',
-    'git:pull',
-    'git:unpushed',
-    'git:branches',
-    'git:checkout',
-    'git:log',
-    'git:diff-files',
-    'git:working-diff-files',
-    'git:diff-file-patch',
-    'git:commit-files',
-    'git:file-at-ref',
-    'gitlab:settings:get',
-    'gitlab:settings:save',
-    'gitlab:members',
-    'gitlab:create-mr',
-    'mr-config:get',
-    'mr-config:save',
-    'store:read',
-    'store:write',
-    'store:patch',
-    'window:minimize',
-    'window:maximize',
-    'window:close',
-    'window:is-maximized'
-  ])
   if (!allowed.has(channel)) {
     return Promise.reject(new Error(`IPC channel not allowed: ${channel}`))
   }

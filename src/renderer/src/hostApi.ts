@@ -9,6 +9,8 @@ export interface DevDashPluginMeta {
   rootDir: string
   uiEntry: string
   mainEntry?: string
+  /** Declared `devdash.ipc` suffixes → full channels `plugin:<id>:<suffix>`. */
+  ipcSuffixes?: string[]
 }
 
 export interface HostTask {

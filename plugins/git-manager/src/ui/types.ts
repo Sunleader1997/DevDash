@@ -62,10 +62,38 @@ export interface GitLabMember {
   name: string
 }
 
+/** Global GitLab defaults — used when a repo has not overridden the field. */
+export interface GitLabDefaults {
+  baseUrl: string
+  token: string
+  projectPath: string
+  assignees: number[]
+  reviewers: number[]
+  assigneeNames: string[]
+  reviewerNames: string[]
+}
+
+/** Per-repo GitLab overrides. Empty / missing fields fall back to global defaults. */
+export interface GitLabRepoConfig {
+  projectPath?: string
+  baseUrl?: string
+  token?: string
+  assignees?: number[]
+  reviewers?: number[]
+  assigneeNames?: string[]
+  reviewerNames?: string[]
+}
+
+/** Effective settings after merging repo config over global defaults. */
 export interface GitLabSettings {
   baseUrl: string
   token: string
   projectPath: string
+  assignees: number[]
+  reviewers: number[]
+  assigneeNames: string[]
+  reviewerNames: string[]
+  overrides: Array<'baseUrl' | 'token' | 'projectPath' | 'assignees' | 'reviewers'>
 }
 
 export interface MrFormCache {

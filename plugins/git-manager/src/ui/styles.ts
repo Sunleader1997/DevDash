@@ -767,6 +767,191 @@ export const pluginCss = `
   position: fixed;
   z-index: 200;
 }
+.gm-settings-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  background: var(--bg, #fff);
+}
+.gm-settings-nav {
+  width: 220px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px 12px 20px 16px;
+  border-right: 1px solid color-mix(in srgb, var(--fg) 8%, transparent);
+  background: color-mix(in srgb, var(--bg-sidebar, #f6f6f8) 70%, transparent);
+}
+.gm-settings-nav-head {
+  padding: 0 8px 4px;
+}
+.gm-settings-nav-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.gm-settings-nav-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--fg-tertiary, var(--fg-secondary));
+  line-height: 1.35;
+}
+.gm-settings-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.gm-settings-nav-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  transition: transform 100ms ease-out, background 120ms ease;
+  font: inherit;
+}
+.gm-settings-nav-item:hover {
+  background: var(--bg-hover);
+}
+.gm-settings-nav-item:active {
+  transform: scale(0.97);
+}
+.gm-settings-nav-item.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.gm-settings-nav-index {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--fg-tertiary, var(--fg-secondary));
+  padding-top: 2px;
+  flex-shrink: 0;
+}
+.gm-settings-nav-item.active .gm-settings-nav-index {
+  color: var(--accent);
+}
+.gm-settings-nav-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.gm-settings-nav-label {
+  font-size: 12px;
+  font-weight: 550;
+  letter-spacing: -0.01em;
+}
+.gm-settings-nav-desc {
+  font-size: 11px;
+  color: var(--fg-tertiary, var(--fg-secondary));
+  line-height: 1.3;
+}
+.gm-settings-nav-item.active .gm-settings-nav-desc {
+  color: color-mix(in srgb, var(--accent) 70%, var(--fg-secondary));
+}
+
+.gm-settings-scroll {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 28px 40px;
+  scroll-behavior: smooth;
+}
+@media (prefers-reduced-motion: reduce) {
+  .gm-settings-scroll {
+    scroll-behavior: auto;
+  }
+  .gm-settings-nav-item {
+    transition: none;
+  }
+}
+.gm-settings-top {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 24px 0 16px;
+  background: color-mix(in srgb, var(--bg, #fff) 88%, transparent);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+}
+.gm-settings-top h2 {
+  margin: 0;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+.gm-settings-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 640px;
+  padding: 20px 20px 18px;
+  margin-bottom: 16px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--fg) 8%, transparent);
+  background: color-mix(in srgb, var(--bg-elevated, #fff) 92%, transparent);
+  box-shadow: 0 1px 2px color-mix(in srgb, #000 6%, transparent);
+}
+.gm-settings-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.gm-settings-card h2 {
+  margin: 0;
+  font-size: 15px;
+  letter-spacing: -0.02em;
+}
+.gm-settings-desc {
+  margin: 4px 0 0;
+  color: var(--fg-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.gm-settings-hint {
+  color: var(--fg-secondary);
+  font-size: 11px;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+.gm-settings-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.gm-settings-row input {
+  flex: 1;
+  max-width: 280px;
+}
+.gm-settings-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 16px;
+}
+.gm-settings-span {
+  grid-column: 1 / -1;
+}
+.gm-settings-ok {
+  color: var(--success, #248a3d);
+  font-size: 12px;
+}
+/* Repo-level settings still use the centered page shell. */
 .gm-settings-page {
   flex: 1;
   min-height: 0;
@@ -775,23 +960,11 @@ export const pluginCss = `
   display: flex;
   justify-content: center;
 }
-.gm-settings-card {
-  width: min(560px, 100%);
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+.gm-settings-page .gm-settings-card {
+  width: min(640px, 100%);
 }
-.gm-settings-card h2 {
-  margin: 0;
-  font-size: 16px;
-  letter-spacing: -0.02em;
-}
-.gm-settings-desc {
-  margin: 0;
-  color: var(--fg-secondary);
-  font-size: 12px;
-}
-.gm-settings-page .gm-field input {
+.gm-settings-page .gm-field input,
+.gm-settings-card .gm-field input {
   max-width: 280px;
 }
 

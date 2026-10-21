@@ -1,5 +1,5 @@
 /**
- * Smoke: plugin discovery + git service against a temp repo.
+ * Smoke: plugin discovery + git porcelain against a temp repo + manifest ipc.
  * Run: node scripts/smoke.mjs
  */
 import { execFile } from 'node:child_process'
@@ -7,12 +7,9 @@ import { promisify } from 'node:util'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { createRequire } from 'node:module'
 
 const execFileAsync = promisify(execFile)
-const require = createRequire(import.meta.url)
 
-// Minimal DOM-less test of plugin manifest discovery
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..')
 const pluginsDir = path.join(root, 'plugins')
 const entries = await fs.readdir(pluginsDir, { withFileTypes: true })
@@ -22,7 +19,21 @@ for (const e of entries) {
   const pkgPath = path.join(pluginsDir, e.name, 'package.json')
   try {
     const pkg = JSON.parse(await fs.readFile(pkgPath, 'utf8'))
-    if (pkg.devdash?.id) found.push(pkg.devdash.id)
+    if (pkg.devdash?.id) {
+      found.push(pkg.devdash.id)
+      if (pkg.devdash.id === 'git-manager') {
+        const ipc = Array.isArray(pkg.devdash.ipc) ? pkg.devdash.ipc : []
+        if (ipc.length === 0) {
+          console.error('FAIL: git-manager manifest missing devdash.ipc')
+          process.exit(1)
+        }
+        console.log('git-manager ipc suffixes:', ipc.length)
+        const mainJs = path.join(pluginsDir, e.name, 'dist', 'main.js')
+        const mainOk = await fs.access(mainJs).then(() => true).catch(() => false)
+        console.log('plugin main bundle:', mainOk ? 'OK' : 'MISSING')
+        if (!mainOk) process.exit(1)
+      }
+    }
   } catch {
     /* ignore */
   }
@@ -43,7 +54,7 @@ await execFileAsync('git', ['-C', tmp, 'commit', '-m', 'init'])
 await fs.writeFile(path.join(tmp, 'a.txt'), 'hello\nworld\n')
 await fs.writeFile(path.join(tmp, 'b.txt'), 'new\n')
 
-// Re-implement porcelain parse (mirrors gitService) for smoke without Electron
+// Mirrors gitService porcelain parse (now lives in plugins/git-manager).
 const { stdout } = await execFileAsync('git', ['-C', tmp, 'status', '--porcelain=v1', '-uall'])
 const rows = stdout.split('\n').filter(Boolean).map((line) => ({
   index: line[0],

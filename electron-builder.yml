@@ -1,0 +1,51 @@
+appId: com.devdash.desktop
+productName: DevDash
+copyright: Copyright © 2026 DevDash
+directories:
+  output: release
+  buildResources: assets/icons
+
+# electron-vite already bundles main/preload/renderer and plugin UI.
+# Only ship built artifacts + plugin manifests — never sources or node_modules.
+files:
+  - package.json
+  - out/**/*
+  - plugins/**/package.json
+  - plugins/**/dist/**/*
+  - assets/**/*
+  - "!**/node_modules/**"
+  - "!**/*.{map,ts,tsx,md,log}"
+  - "!plugins/**/src/**"
+  - "!plugins/**/{tsconfig.json,vite.config.ts,package-lock.json}"
+  - "!{src,docs,scripts,build,release}/**"
+  - "!*.{md,txt,yml,yaml,jsonc}"
+  - "!dev-*.txt"
+  - "!electron-*.txt"
+  - "!tsconfig*.json"
+  - "!electron.vite.config.ts"
+
+asar: true
+# Plugin main is dynamically imported; keep plugins readable if asar ever
+# interferes with the custom protocol, but start packed.
+# asarUnpack:
+#   - plugins/**
+
+win:
+  icon: assets/icons/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: zip
+      arch:
+        - x64
+  artifactName: ${name}-${version}-win-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: DevDash
+  artifactName: ${name}-${version}-win-${arch}-setup.${ext}

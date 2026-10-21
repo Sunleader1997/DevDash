@@ -1,8 +1,27 @@
-import { app } from 'electron'
+import { app, ipcMain } from 'electron'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { DevDashPluginMeta } from '../../renderer/src/hostApi'
+
+const IPC_SUFFIX_RE = /^[A-Za-z0-9:._-]+$/
+const PLUGIN_ID_RE = /^[a-z0-9][a-z0-9-]*$/
+/** Host-owned channel names — plugins must not claim these. */
+const HOST_CHANNEL_NAMES = new Set([
+  'plugin:list',
+  'fs:pick-directory',
+  'shell:open-path',
+  'shell:show-in-folder',
+  'fs:read-text-file',
+  'fs:probe-file',
+  'store:read',
+  'store:write',
+  'store:patch',
+  'window:minimize',
+  'window:maximize',
+  'window:close',
+  'window:is-maximized'
+])
 
 interface PackageManifest {
   name?: string
@@ -14,7 +33,14 @@ interface PackageManifest {
     order?: number
     ui?: string
     main?: string
+    ipc?: string[]
   }
+}
+
+export interface PluginMainContext {
+  appPath: string
+  userDataPath: string
+  registerIpc: (suffix: string, handler: (...args: unknown[]) => Promise<unknown>) => void
 }
 
 async function readManifest(file: string): Promise<PackageManifest | null> {
@@ -28,8 +54,16 @@ async function readManifest(file: string): Promise<PackageManifest | null> {
 function toMeta(rootDir: string, pkg: PackageManifest): DevDashPluginMeta | null {
   const d = pkg.devdash
   if (!d?.id || !d.title) return null
+  if (!PLUGIN_ID_RE.test(d.id)) return null
   const uiRel = d.ui ?? pkg.main ?? 'dist/ui.js'
   const mainRel = d.main
+  const ipcSuffixes = Array.isArray(d.ipc)
+    ? d.ipc.filter((s) => {
+        if (typeof s === 'string' && IPC_SUFFIX_RE.test(s)) return true
+        console.warn(`[plugin:${d.id}] dropping invalid devdash.ipc suffix:`, s)
+        return false
+      })
+    : []
   return {
     id: d.id,
     title: d.title,
@@ -38,7 +72,8 @@ function toMeta(rootDir: string, pkg: PackageManifest): DevDashPluginMeta | null
     packageName: pkg.name ?? d.id,
     rootDir,
     uiEntry: path.resolve(rootDir, uiRel),
-    mainEntry: mainRel ? path.resolve(rootDir, mainRel) : undefined
+    mainEntry: mainRel ? path.resolve(rootDir, mainRel) : undefined,
+    ipcSuffixes
   }
 }
 
@@ -78,6 +113,7 @@ async function collectFromNodeModules(dir: string, out: DevDashPluginMeta[]): Pr
 export class PluginRegistry {
   private cache: DevDashPluginMeta[] = []
   private loadedMain = new Set<string>()
+  private registeredChannels = new Set<string>()
 
   /**
    * Discover plugins from:
@@ -136,8 +172,24 @@ export class PluginRegistry {
     return this.cache.find((p) => p.id === id)
   }
 
+  /** Full plugin IPC channel names declared in manifests (for preload allowlist). */
+  declaredIpcChannels(): string[] {
+    const out: string[] = []
+    for (const m of this.cache) {
+      for (const suffix of m.ipcSuffixes ?? []) {
+        out.push(`plugin:${m.id}:${suffix}`)
+      }
+    }
+    return out
+  }
+
+  /** Channels successfully bound via registerIpc. */
+  boundIpcChannels(): string[] {
+    return [...this.registeredChannels]
+  }
+
   /**
-   * Load plugin main-process module if present.
+   * Load plugin main-process module if present and let it register IPC.
    */
   async loadMain(meta: DevDashPluginMeta): Promise<void> {
     if (!meta.mainEntry) return
@@ -148,12 +200,57 @@ export class PluginRegistry {
       const mod = await import(url)
       const plugin = mod.default ?? mod
       if (typeof plugin?.activate === 'function') {
-        await plugin.activate({ appPath: app.getAppPath() })
+        const ctx = this.createContext(meta)
+        await plugin.activate(ctx)
       }
     } catch (error) {
       this.loadedMain.delete(meta.id)
       console.error(`[plugin:${meta.id}] main activate failed`, error)
     }
+  }
+
+  async loadAllMains(): Promise<void> {
+    for (const meta of this.cache) {
+      await this.loadMain(meta)
+    }
+  }
+
+  private createContext(meta: DevDashPluginMeta): PluginMainContext {
+    return {
+      appPath: app.getAppPath(),
+      userDataPath: app.getPath('userData'),
+      registerIpc: (suffix, handler) => {
+        this.registerIpc(meta, suffix, handler)
+      }
+    }
+  }
+
+  private registerIpc(
+    meta: DevDashPluginMeta,
+    suffix: string,
+    handler: (...args: unknown[]) => Promise<unknown>
+  ): void {
+    if (typeof suffix !== 'string' || !IPC_SUFFIX_RE.test(suffix)) {
+      throw new Error(`[plugin:${meta.id}] invalid IPC suffix: ${suffix}`)
+    }
+    const declared = meta.ipcSuffixes ?? []
+    if (!declared.includes(suffix)) {
+      throw new Error(`[plugin:${meta.id}] IPC suffix not in manifest: ${suffix}`)
+    }
+    const channel = `plugin:${meta.id}:${suffix}`
+    if (this.registeredChannels.has(channel)) {
+      throw new Error(`[plugin:${meta.id}] duplicate IPC channel: ${channel}`)
+    }
+    // Full name must stay under this plugin's namespace and must not steal a host channel.
+    if (!channel.startsWith(`plugin:${meta.id}:`)) {
+      throw new Error(`[plugin:${meta.id}] illegal channel: ${channel}`)
+    }
+    if (HOST_CHANNEL_NAMES.has(channel)) {
+      throw new Error(`[plugin:${meta.id}] channel conflicts with host: ${channel}`)
+    }
+    // Bind first so a failed handle does not leave a sticky registered name.
+    ipcMain.handle(channel, (_e, ...args: unknown[]) => Promise.resolve(handler(...args)))
+    this.registeredChannels.add(channel)
   }
 }
 

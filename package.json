@@ -2,6 +2,7 @@
   "name": "devdash",
   "version": "0.1.0",
   "private": true,
+  "author": "DevDash",
   "description": "Plugin-based cross-platform developer dashboard (Electron)",
   "main": "out/main/index.js",
   "workspaces": [
@@ -14,6 +15,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "build:plugins": "node scripts/build-plugins.mjs",
     "ensure:electron": "node scripts/ensure-electron.mjs",
+    "pack:win": "npm run build && electron-builder --win",
+    "pack:win:dir": "npm run build && electron-builder --win dir",
     "postinstall": "npm run build:plugins && npm run ensure:electron"
   },
   "dependencies": {
@@ -26,6 +29,7 @@
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^34.3.0",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^3.0.0",
     "typescript": "^5.8.2",
     "vite": "^6.2.1"

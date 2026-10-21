@@ -1,6 +1,10 @@
-import { app, BrowserWindow, shell, protocol, ipcMain } from 'electron'
+import { app, BrowserWindow, shell, protocol, ipcMain, nativeImage } from 'electron'
 import { join } from 'node:path'
 import { registerIpc, registerPluginProtocol } from './ipc'
+import { pluginRegistry } from './plugin/registry'
+
+const ICONS_DIR = join(app.getAppPath(), 'assets/icons')
+const APP_ICON = join(ICONS_DIR, 'icon.png')
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -24,6 +28,7 @@ function createWindow(): void {
     minHeight: 640,
     show: false,
     title: 'DevDash',
+    icon: APP_ICON,
     backgroundColor: '#1c1c1e',
     // macOS keeps native traffic lights; Windows/Linux use custom red/yellow/green
     frame: isMac,
@@ -35,7 +40,13 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      additionalArguments: [
+        `--devdash-ipc=${JSON.stringify([
+          ...pluginRegistry.declaredIpcChannels(),
+          ...pluginRegistry.boundIpcChannels()
+        ])}`
+      ]
     }
   })
 
@@ -75,10 +86,20 @@ function registerWindowControls(): void {
   })
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  if (process.platform === 'darwin' && app.dock) {
+    try {
+      app.dock.setIcon(nativeImage.createFromPath(APP_ICON))
+    } catch {
+      /* icon optional at dev time */
+    }
+  }
   registerPluginProtocol()
   registerWindowControls()
   registerIpc()
+  // Discover + activate plugin mains before the window so preload can allow their IPC.
+  await pluginRegistry.discover()
+  await pluginRegistry.loadAllMains()
   createWindow()
 
   app.on('activate', () => {
