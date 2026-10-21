@@ -8,3 +8,5 @@ dev-err.txt
 dev-out.txt
 electron-err.txt
 electron-out.txt
+package-lock.json
+plugins/git-manager/dist/
