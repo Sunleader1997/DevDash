@@ -167,13 +167,6 @@ export function SettingsModal({
           </button>
         </div>
         <div className="modal-body">
-          <div className="modal-hint">
-            配置名称、接口地址、协议与 API Key。测试连通会对 <code>/v1/messages</code> 发一次真实请求。
-            <br />
-            <strong>MiniMax</strong>：接口地址请用 <code>https://api.minimax.io/anthropic</code>（或
-            <code>https://api.minimaxi.com/anthropic</code>），模型选 <code>MiniMax-M3.1-Flash</code>。
-            不要只填域名——那只会命中 OpenAI 风格的 <code>/v1/models</code>，对话会报 Unsupported model。
-          </div>
           {settings.presets.map((p) => {
             const key = p.id || p.label || 'draft'
             const tr = testResults[key] ?? (p.lastTest

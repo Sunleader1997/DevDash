@@ -26,12 +26,14 @@ const HOST_CHANNELS = [
   'agent:models:list',
   'agent:models:test',
   'agent:skills:list',
+  'agent:caps:get',
   'agent:tasks:list',
   'agent:tasks:create',
   'agent:tasks:delete',
   'agent:messages:history',
   'agent:messages:send',
   'agent:model:switch',
+  'agent:access:switch',
   'agent:permission:respond',
   'agent:session:cancel'
 ]

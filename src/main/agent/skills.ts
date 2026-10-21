@@ -15,8 +15,9 @@ function repoRoot(): string {
 function skillDirs(): string[] {
   const root = repoRoot()
   return [
-    path.join(root, '.mimocode', 'skills'),
     path.join(root, '.claude', 'skills'),
+    path.join(root, '.mimocode', 'skills'),
+    path.join(os.homedir(), '.claude', 'skills'),
     path.join(os.homedir(), '.config', 'mimocode', 'skills'),
     path.join(os.homedir(), '.agents', 'skills')
   ]

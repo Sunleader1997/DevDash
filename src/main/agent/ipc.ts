@@ -71,6 +71,11 @@ export function registerAgentIpc(): void {
     return listSkills()
   })
 
+  /** SDK init caps: skills / slash_commands / agents / mcp / plugins. */
+  ipcMain.handle('agent:caps:get', async () => {
+    return runtime.getSessionCaps()
+  })
+
   ipcMain.handle('agent:tasks:list', async () => {
     const local = await sessionStore.listTasks()
     try {
@@ -120,9 +125,31 @@ export function registerAgentIpc(): void {
   })
 
   ipcMain.handle(
+    'agent:access:switch',
+    async (_e, payload: { taskId: string; accessMode: 'approve' | 'full' }) => {
+      return runtime.switchAccessMode(payload.taskId, payload.accessMode)
+    }
+  )
+
+  ipcMain.handle(
     'agent:permission:respond',
-    async (_e, payload: { requestId: string; allow: boolean; reason?: string }) => {
-      return respondPermission(payload.requestId, payload.allow, payload.reason)
+    async (
+      _e,
+      payload: {
+        requestId: string
+        allow: boolean
+        reason?: string
+        rememberSession?: boolean
+        updatedInput?: Record<string, unknown>
+      }
+    ) => {
+      return respondPermission(
+        payload.requestId,
+        payload.allow,
+        payload.reason,
+        payload.rememberSession,
+        payload.updatedInput
+      )
     }
   )
 

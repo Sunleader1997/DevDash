@@ -27,6 +27,8 @@ export type AccessMode = 'approve' | 'full'
 
 export type AgentTaskStatus = 'idle' | 'running' | 'error'
 
+export type AgentPhase = 'idle' | 'thinking' | 'tool' | 'waiting' | 'streaming' | 'error'
+
 export type AgentTask = {
   id: string
   title: string
@@ -41,6 +43,8 @@ export type AgentTask = {
 
 export type ChatRole = 'user' | 'assistant' | 'tool' | 'system'
 
+export type ToolStatus = 'running' | 'done' | 'error'
+
 export type ChatMessage = {
   id: string
   taskId: string
@@ -48,6 +52,10 @@ export type ChatMessage = {
   text: string
   createdAt: number
   toolName?: string
+  toolInput?: string
+  toolResult?: string
+  toolStatus?: ToolStatus
+  toolUseId?: string
   pluginRefs?: string[]
   skillRefs?: string[]
   streaming?: boolean
@@ -82,8 +90,24 @@ export type ConnectivityResult = {
 
 export type AgentEvent =
   | { type: 'message'; taskId: string; message: ChatMessage }
-  | { type: 'message-update'; taskId: string; messageId: string; text: string; streaming?: boolean }
-  | { type: 'status'; taskId: string; status: AgentTaskStatus; error?: string; sessionId?: string }
+  | {
+      type: 'message-update'
+      taskId: string
+      messageId: string
+      text?: string
+      streaming?: boolean
+      toolResult?: string
+      toolStatus?: ToolStatus
+    }
+  | {
+      type: 'status'
+      taskId: string
+      status: AgentTaskStatus
+      error?: string
+      sessionId?: string
+      phase?: AgentPhase
+      accessMode?: AccessMode
+    }
   | { type: 'permission'; payload: PermissionRequestPayload }
   | { type: 'error'; taskId: string; message: string }
 
@@ -95,3 +119,4 @@ export type AgentSendRequest = {
   modelId?: string
   accessMode?: AccessMode
 }
+

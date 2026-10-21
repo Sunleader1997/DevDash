@@ -1,4 +1,5 @@
 import type {
+  AccessMode,
   AgentEvent,
   AgentSendRequest,
   AgentSettings,
@@ -31,6 +32,18 @@ export async function testModel(
 
 export async function listSkills(): Promise<SkillInfo[]> {
   return (await window.devdash.invoke('agent:skills:list')) as SkillInfo[]
+}
+
+export type SessionCaps = {
+  skills: string[]
+  slashCommands: string[]
+  agents: string[]
+  mcpServers: Array<{ name: string; status: string }>
+  plugins: Array<{ name: string; path: string }>
+}
+
+export async function getSessionCaps(): Promise<SessionCaps | null> {
+  return (await window.devdash.invoke('agent:caps:get')) as SessionCaps | null
 }
 
 export async function listTasks(): Promise<AgentTask[]> {
@@ -66,15 +79,29 @@ export async function switchModel(
   }
 }
 
+export async function switchAccessMode(
+  taskId: string,
+  accessMode: AccessMode
+): Promise<{ ok: boolean; error?: string }> {
+  return (await window.devdash.invoke('agent:access:switch', { taskId, accessMode })) as {
+    ok: boolean
+    error?: string
+  }
+}
+
 export async function respondPermission(
   requestId: string,
   allow: boolean,
-  reason?: string
+  reason?: string,
+  rememberSession?: boolean,
+  updatedInput?: Record<string, unknown>
 ): Promise<boolean> {
   const res = (await window.devdash.invoke('agent:permission:respond', {
     requestId,
     allow,
-    reason
+    reason,
+    rememberSession,
+    updatedInput
   })) as boolean
   return res
 }

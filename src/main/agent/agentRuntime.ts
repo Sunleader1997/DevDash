@@ -2,20 +2,20 @@ import { BrowserWindow, app } from 'electron'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import type { CanUseTool, PermissionResult, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
-import type { AccessMode, AgentEvent, AgentTask, ChatMessage, ModelPreset } from './types'
+import type {
+  AccessMode,
+  AgentEvent,
+  AgentPhase,
+  AgentTask,
+  ChatMessage,
+  ModelPreset,
+  ToolStatus
+} from './types'
 import { buildEnvForPreset, loadSettings, pickPreset } from './modelConfig'
 import * as sessionStore from './sessionStore'
-import { classifyTool, denyAllPending, requestPermission } from './permissionBridge'
+import { classifyTool, denyAllPending, requestPermission, setAllowToolForSession } from './permissionBridge'
 import { pluginRegistry } from '../plugin/registry'
 import { buildSkillContext, listSkills } from './skills'
-
-function repoRoot(): string {
-  try {
-    return app.isReady() ? app.getAppPath() : process.cwd()
-  } catch {
-    return process.cwd()
-  }
-}
 
 const SYSTEM_APPEND = `
 你是 DevDash 插件开发助手。目标：通过新建或修改 plugins/* 下的 npm 插件，交付可被宿主发现与加载的插件应用。
@@ -43,14 +43,48 @@ type ActiveSession = {
   abort: AbortController
   accessMode: AccessMode
   pendingAssistantId?: string
+  /** Streaming text buffer for the current assistant message */
+  streamBuffer: string
+  /** tool_use_id → chat message id */
+  toolIndex: Map<string, string>
+  /** Session-scoped tool allowlist from "允许并记住本会话" */
+  sessionAllowedTools: Set<string>
+}
+
+function repoRoot(): string {
+  try {
+    return app.isReady() ? app.getAppPath() : process.cwd()
+  } catch {
+    return process.cwd()
+  }
 }
 
 const active = new Map<string, ActiveSession>()
+
+/** Caps discovered from the latest SDK system/init frame (skills, commands, mcp…). */
+export type SessionCaps = {
+  skills: string[]
+  slashCommands: string[]
+  agents: string[]
+  mcpServers: Array<{ name: string; status: string }>
+  plugins: Array<{ name: string; path: string }>
+}
+
+let lastCaps: SessionCaps | null = null
+
+export function getSessionCaps(): SessionCaps | null {
+  return lastCaps
+}
 
 function broadcast(event: AgentEvent): void {
   for (const win of BrowserWindow.getAllWindows()) {
     win.webContents.send('agent:event', event)
   }
+}
+
+function setPhase(taskId: string, phase: AgentPhase, extra?: Partial<AgentEvent>): void {
+  const base = { type: 'status' as const, taskId, status: 'running' as const, phase }
+  broadcast({ ...base, ...extra } as AgentEvent)
 }
 
 function makeUserMessage(text: string, uuid?: string): SDKUserMessage {
@@ -105,20 +139,80 @@ function extractText(message: SDKMessage): string {
   return ''
 }
 
-function extractToolUses(message: SDKMessage): Array<{ name: string; input: Record<string, unknown> }> {
+function extractToolUses(
+  message: SDKMessage
+): Array<{ name: string; input: Record<string, unknown>; toolUseId?: string }> {
   if (message.type !== 'assistant') return []
   const content = (message as { message?: { content?: unknown } }).message?.content
   if (!Array.isArray(content)) return []
-  const out: Array<{ name: string; input: Record<string, unknown> }> = []
+  const out: Array<{ name: string; input: Record<string, unknown>; toolUseId?: string }> = []
   for (const block of content) {
     if (block && typeof block === 'object' && 'type' in block) {
-      const b = block as { type: string; name?: string; input?: unknown }
+      const b = block as { type: string; name?: string; input?: unknown; id?: string }
       if (b.type === 'tool_use' && typeof b.name === 'string') {
-        out.push({ name: b.name, input: (b.input as Record<string, unknown>) ?? {} })
+        out.push({
+          name: b.name,
+          input: (b.input as Record<string, unknown>) ?? {},
+          toolUseId: typeof b.id === 'string' ? b.id : undefined
+        })
       }
     }
   }
   return out
+}
+
+function extractToolResults(
+  message: SDKMessage
+): Array<{ toolUseId: string; text: string; isError?: boolean }> {
+  if (message.type !== 'user') return []
+  const content = (message as { message?: { content?: unknown } }).message?.content
+  if (!Array.isArray(content)) return []
+  const out: Array<{ toolUseId: string; text: string; isError?: boolean }> = []
+  for (const block of content) {
+    if (block && typeof block === 'object' && 'type' in block) {
+      const b = block as {
+        type: string
+        tool_use_id?: string
+        content?: unknown
+        is_error?: boolean
+      }
+      if (b.type === 'tool_result') {
+        let text = ''
+        if (typeof b.content === 'string') text = b.content
+        else if (Array.isArray(b.content)) {
+          text = b.content
+            .map((c) => {
+              if (c && typeof c === 'object' && 'type' in c && (c as { type: string }).type === 'text') {
+                return (c as { text?: string }).text ?? ''
+              }
+              return ''
+            })
+            .filter(Boolean)
+            .join('\n')
+        }
+        out.push({
+          toolUseId: b.tool_use_id ?? '',
+          text: text.slice(0, 4000),
+          isError: b.is_error === true
+        })
+      }
+    }
+  }
+  return out
+}
+
+function summarizeToolInput(name: string, input: Record<string, unknown>): string {
+  const prefer = ['command', 'file_path', 'path', 'pattern', 'url', 'query', 'notebook_path']
+  for (const k of prefer) {
+    const v = input[k]
+    if (typeof v === 'string' && v) return v.length > 120 ? v.slice(0, 120) + '…' : v
+  }
+  try {
+    const s = JSON.stringify(input)
+    return s.length > 120 ? s.slice(0, 120) + '…' : s
+  } catch {
+    return name
+  }
 }
 
 async function emitMessage(msg: ChatMessage): Promise<void> {
@@ -159,9 +253,68 @@ async function consumeStream(
 
       if (message.type === 'system' && (message as { subtype?: string }).subtype === 'init') {
         const sid = (message as { session_id?: string }).session_id
+        const init = message as {
+          session_id?: string
+          skills?: string[]
+          slash_commands?: string[]
+          agents?: string[]
+          mcp_servers?: Array<{ name: string; status: string }>
+          plugins?: Array<{ name: string; path: string }>
+        }
+        lastCaps = {
+          skills: init.skills ?? [],
+          slashCommands: init.slash_commands ?? [],
+          agents: init.agents ?? [],
+          mcpServers: init.mcp_servers ?? [],
+          plugins: init.plugins ?? []
+        }
         if (sid) {
           await sessionStore.updateTask(taskId, { sessionId: sid })
-          broadcast({ type: 'status', taskId, status: 'running', sessionId: sid })
+          broadcast({
+            type: 'status',
+            taskId,
+            status: 'running',
+            sessionId: sid,
+            phase: 'thinking'
+          })
+        }
+        continue
+      }
+
+      // Token-level streaming (includePartialMessages)
+      if ((message as { type?: string }).type === 'stream_event') {
+        const event = (message as { event?: Record<string, unknown> }).event
+        if (event && event.type === 'content_block_delta') {
+          const delta = event.delta as { type?: string; text?: string; partial_json?: string } | undefined
+          if (delta?.type === 'text_delta' && typeof delta.text === 'string' && delta.text) {
+            session.streamBuffer += delta.text
+            if (!session.pendingAssistantId) {
+              const msg: ChatMessage = {
+                id: randomUUID(),
+                taskId,
+                role: 'assistant',
+                text: session.streamBuffer,
+                createdAt: Date.now(),
+                streaming: true
+              }
+              session.pendingAssistantId = msg.id
+              await sessionStore.appendMessage(taskId, msg)
+              await emitMessage(msg)
+            } else {
+              await sessionStore.replaceMessage(taskId, session.pendingAssistantId, {
+                text: session.streamBuffer,
+                streaming: true
+              })
+              broadcast({
+                type: 'message-update',
+                taskId,
+                messageId: session.pendingAssistantId,
+                text: session.streamBuffer,
+                streaming: true
+              })
+            }
+            setPhase(taskId, 'streaming')
+          }
         }
         continue
       }
@@ -170,30 +323,34 @@ async function consumeStream(
         const text = extractText(message)
         const tools = extractToolUses(message)
 
-        // Each complete assistant message is its own chat row (a turn can
-        // produce several: text → tool → text). Never replace earlier text.
-        if (text) {
+        // Finalize streaming buffer first. Prefer the streamed buffer (what the
+        // user already saw) over extractText join differences.
+        if (session.pendingAssistantId) {
+          const finalText = session.streamBuffer || text
+          await sessionStore.replaceMessage(taskId, session.pendingAssistantId, {
+            text: finalText,
+            streaming: false
+          })
+          broadcast({
+            type: 'message-update',
+            taskId,
+            messageId: session.pendingAssistantId,
+            text: finalText,
+            streaming: false
+          })
+          session.pendingAssistantId = undefined
+          session.streamBuffer = ''
+        } else if (text) {
           const msg: ChatMessage = {
             id: randomUUID(),
             taskId,
             role: 'assistant',
             text,
             createdAt: Date.now(),
-            streaming: true
+            streaming: false
           }
-          session.pendingAssistantId = msg.id
           await sessionStore.appendMessage(taskId, msg)
           await emitMessage(msg)
-          // Finalize immediately — this message is complete.
-          await sessionStore.replaceMessage(taskId, msg.id, { streaming: false })
-          broadcast({
-            type: 'message-update',
-            taskId,
-            messageId: msg.id,
-            text,
-            streaming: false
-          })
-          session.pendingAssistantId = undefined
         }
 
         for (const t of tools) {
@@ -201,24 +358,76 @@ async function consumeStream(
             id: randomUUID(),
             taskId,
             role: 'tool',
-            text: JSON.stringify(t.input).slice(0, 500),
+            text: summarizeToolInput(t.name, t.input),
             toolName: t.name,
+            toolInput: summarizeToolInput(t.name, t.input),
+            toolStatus: 'running',
+            toolUseId: t.toolUseId,
             createdAt: Date.now()
           }
+          if (t.toolUseId) session.toolIndex.set(t.toolUseId, toolMsg.id)
           await sessionStore.appendMessage(taskId, toolMsg)
           await emitMessage(toolMsg)
+          setPhase(taskId, 'tool')
         }
+        continue
+      }
+
+      // tool_result arrives as a user-role message
+      const results = extractToolResults(message)
+      if (results.length) {
+        for (const r of results) {
+          const msgId = r.toolUseId ? session.toolIndex.get(r.toolUseId) : undefined
+          const status: ToolStatus = r.isError ? 'error' : 'done'
+          if (msgId) {
+            await sessionStore.replaceMessage(taskId, msgId, {
+              toolResult: r.text,
+              toolStatus: status
+            })
+            broadcast({
+              type: 'message-update',
+              taskId,
+              messageId: msgId,
+              toolResult: r.text,
+              toolStatus: status
+            })
+          } else {
+            // Orphan tool_result (map miss / no id) — still surface it.
+            const orphan: ChatMessage = {
+              id: randomUUID(),
+              taskId,
+              role: 'tool',
+              text: r.text.slice(0, 200),
+              toolName: 'tool_result',
+              toolResult: r.text,
+              toolStatus: status,
+              toolUseId: r.toolUseId || undefined,
+              createdAt: Date.now()
+            }
+            await sessionStore.appendMessage(taskId, orphan)
+            await emitMessage(orphan)
+          }
+        }
+        setPhase(taskId, 'thinking')
         continue
       }
 
       if (message.type === 'result') {
         const text = extractText(message)
         const failed = (message as { is_error?: boolean; subtype?: string }).is_error === true
-        // Do NOT overwrite assistant text with result.result — it is often a
-        // short summary or empty, and wiping prior assistant rows loses work.
+        // Never overwrite assistant body with result.result (spec: result 不得覆盖正文).
         if (session.pendingAssistantId) {
-          await sessionStore.replaceMessage(taskId, session.pendingAssistantId, { streaming: false })
+          await sessionStore.replaceMessage(taskId, session.pendingAssistantId, {
+            streaming: false
+          })
+          broadcast({
+            type: 'message-update',
+            taskId,
+            messageId: session.pendingAssistantId,
+            streaming: false
+          })
           session.pendingAssistantId = undefined
+          session.streamBuffer = ''
         } else if (failed && text) {
           const msg: ChatMessage = {
             id: randomUUID(),
@@ -239,7 +448,8 @@ async function consumeStream(
           type: 'status',
           taskId,
           status: failed ? 'error' : 'idle',
-          error: failed ? text || '执行失败' : undefined
+          error: failed ? text || '执行失败' : undefined,
+          phase: failed ? 'error' : 'idle'
         })
       }
     }
@@ -247,7 +457,7 @@ async function consumeStream(
     const message = err instanceof Error ? err.message : String(err)
     await sessionStore.updateTask(taskId, { status: 'error', lastError: message })
     broadcast({ type: 'error', taskId, message })
-    broadcast({ type: 'status', taskId, status: 'error', error: message })
+    broadcast({ type: 'status', taskId, status: 'error', error: message, phase: 'error' })
   } finally {
     active.delete(taskId)
   }
@@ -300,6 +510,14 @@ async function startSession(
   const { query } = await import('@anthropic-ai/claude-agent-sdk')
 
   const canUseTool: CanUseTool = async (toolName, input, options): Promise<PermissionResult> => {
+    const sess = active.get(taskId)
+    // Full access: never prompt (S2.2). Still allow session-scoped remembers.
+    if (sess?.accessMode === 'full') {
+      return { behavior: 'allow' }
+    }
+    if (sess?.sessionAllowedTools.has(toolName)) {
+      return { behavior: 'allow' }
+    }
     const { autoAllow, dangerous } = classifyTool(toolName, input, repoRoot())
     if (autoAllow && !dangerous) {
       return { behavior: 'allow' }
@@ -344,17 +562,19 @@ async function startSession(
     prompt: stream,
     options: {
       cwd: repoRoot(),
+      // Force our preset model/env even when user/project settings pin another model.
       model: preset.model,
       env,
-      // Critical: ignore ~/.claude/settings.json / project .claude — they often pin
-      // a different provider (e.g. mimo-v2.5-pro) and override our preset, causing
-      // "API Error: 400 Unsupported model" before any network call.
-      settingSources: [],
+      // Inherit Claude Code ecosystem: skills / agents / hooks / mcp / plugins / commands.
+      settingSources: ['user', 'project'],
+      skills: 'all',
+      includePartialMessages: true,
       abortController: abort,
-      canUseTool: fullAccess ? undefined : canUseTool,
+      // Always attach canUseTool so mid-session setPermissionMode('default') keeps prompts.
+      canUseTool,
       permissionMode: fullAccess ? 'bypassPermissions' : 'default',
       allowDangerouslySkipPermissions: fullAccess,
-      permissionPrompts: fullAccess ? 'none' : 'host',
+      permissionPrompts: 'host',
       title: task?.title || 'DevDash 任务',
       systemPrompt: {
         type: 'preset',
@@ -374,7 +594,10 @@ async function startSession(
     push,
     end,
     abort,
-    accessMode: access
+    accessMode: access,
+    streamBuffer: '',
+    toolIndex: new Map(),
+    sessionAllowedTools: new Set()
   }
   active.set(taskId, session)
   void consumeStream(taskId, q, session)
@@ -425,21 +648,23 @@ export async function sendMessage(params: {
     patch.title = trimmed.slice(0, 40)
   }
   await sessionStore.updateTask(taskId, patch)
-  broadcast({ type: 'status', taskId, status: 'running' })
+  broadcast({ type: 'status', taskId, status: 'running', phase: 'thinking' })
 
   try {
-    // Access mode changes require a fresh process (permission mode is startup-bound
-    // for bypass). If mode differs from the live session, restart it.
+    // Access mode switches apply via setPermissionMode at the next tool action —
+    // never cancel/restart the live loop (S2.2).
     const desiredMode = params.accessMode ?? current?.accessMode ?? 'approve'
     let session = active.get(taskId)
-    if (session && session.accessMode !== desiredMode) {
-      await cancelTask(taskId)
-      session = undefined
-    }
     if (!session) {
       session = await startSession(taskId, preset.id, desiredMode)
     } else {
       await session.query.setModel(preset.model)
+      if (session.accessMode !== desiredMode) {
+        await session.query.setPermissionMode(
+          desiredMode === 'full' ? 'bypassPermissions' : 'default'
+        )
+        session.accessMode = desiredMode
+      }
     }
     session.push(makeUserMessage(body, randomUUID()))
     return { ok: true }
@@ -450,6 +675,40 @@ export async function sendMessage(params: {
     return { ok: false, error: message }
   }
 }
+
+export async function switchAccessMode(
+  taskId: string,
+  accessMode: AccessMode
+): Promise<{ ok: boolean; error?: string }> {
+  await sessionStore.updateTask(taskId, { accessMode })
+  const session = active.get(taskId)
+  if (session) {
+    try {
+      // Takes effect on the next tool request; does not interrupt the current loop.
+      await session.query.setPermissionMode(accessMode === 'full' ? 'bypassPermissions' : 'default')
+      session.accessMode = accessMode
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  }
+  // Do not claim the task is running — echo the real status with the mode change.
+  const current = await sessionStore.getTask(taskId)
+  broadcast({
+    type: 'status',
+    taskId,
+    status: current?.status ?? 'idle',
+    accessMode
+  })
+  return { ok: true }
+}
+
+/** Remember a tool for the rest of this session ("允许并记住本会话"). */
+export function allowToolForSession(taskId: string, toolName: string): void {
+  active.get(taskId)?.sessionAllowedTools.add(toolName)
+}
+
+// Wire permissionBridge → session allowlist without a dynamic import cycle.
+setAllowToolForSession(allowToolForSession)
 
 export async function switchModel(taskId: string, modelId: string): Promise<{ ok: boolean; error?: string }> {
   const settings = await loadSettings()

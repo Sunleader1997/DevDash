@@ -8,11 +8,19 @@ type Pending = {
   resolve: (r: PermissionResult) => void
   timer: NodeJS.Timeout
   taskId: string
+  toolName: string
 }
 
 const TIMEOUT_MS = 120_000
 
 const pending = new Map<string, Pending>()
+
+/** Injected at runtime init to avoid a static circular import. */
+let allowToolForSessionFn: ((taskId: string, toolName: string) => void) | null = null
+
+export function setAllowToolForSession(fn: (taskId: string, toolName: string) => void): void {
+  allowToolForSessionFn = fn
+}
 
 function broadcast(event: AgentEvent): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -90,6 +98,10 @@ export function classifyTool(
   input: Record<string, unknown>,
   repoRoot: string
 ): { autoAllow: boolean; dangerous: boolean } {
+  if (toolName === 'AskUserQuestion') {
+    // Always surface to the UI as a structured input dialog (not a danger prompt).
+    return { autoAllow: false, dangerous: false }
+  }
   if (AUTO_ALLOW_TOOLS.has(toolName)) return { autoAllow: true, dangerous: false }
 
   if (toolName === 'Bash') {
@@ -157,18 +169,35 @@ export function requestPermission(params: {
       })
     }, TIMEOUT_MS)
 
-    pending.set(requestId, { resolve, timer, taskId: params.taskId })
+    pending.set(requestId, {
+      resolve,
+      timer,
+      taskId: params.taskId,
+      toolName: params.toolName
+    })
   })
 }
 
-export function respondPermission(requestId: string, allow: boolean, reason?: string): boolean {
+export function respondPermission(
+  requestId: string,
+  allow: boolean,
+  reason?: string,
+  rememberSession?: boolean,
+  updatedInput?: Record<string, unknown>
+): boolean {
   const entry = pending.get(requestId)
   if (!entry) return false
   clearTimeout(entry.timer)
   pending.delete(requestId)
+  if (allow && rememberSession) {
+    // Session-scoped: same tool auto-allows until the session ends.
+    allowToolForSessionFn?.(entry.taskId, entry.toolName)
+  }
   entry.resolve(
     allow
-      ? { behavior: 'allow' }
+      ? updatedInput
+        ? { behavior: 'allow', updatedInput }
+        : { behavior: 'allow' }
       : { behavior: 'deny', message: reason?.trim() || '用户拒绝了该操作。' }
   )
   return true

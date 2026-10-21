@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   AccessMode,
+  AgentEvent,
+  AgentPhase,
   AgentSettings,
   AgentTask,
   ChatMessage,
@@ -9,17 +11,28 @@ import type {
 } from './types'
 import {
   cancelSession,
+  getSessionCaps,
   listSkills,
   listTasks,
   loadHistory,
   onAgentEvent,
   respondPermission,
   sendMessage,
+  switchAccessMode,
   switchModel
 } from './agentApi'
 
 type PluginLite = { id: string; title: string; packageName: string }
 type PickKind = 'plugin' | 'skill' | null
+
+const PHASE_LABEL: Record<AgentPhase, string> = {
+  idle: '就绪',
+  thinking: '思考中',
+  tool: '使用工具',
+  waiting: '等待你确认',
+  streaming: '生成中',
+  error: '出错'
+}
 
 export function AgentWorkspace({
   taskId,
@@ -38,6 +51,7 @@ export function AgentWorkspace({
   const [task, setTask] = useState<AgentTask | null>(null)
   const [plugins, setPlugins] = useState<PluginLite[]>([])
   const [skills, setSkills] = useState<SkillInfo[]>([])
+  const [sdkSkills, setSdkSkills] = useState<string[]>([])
   const [draft, setDraft] = useState('')
   const [pluginRefs, setPluginRefs] = useState<string[]>([])
   const [skillRefs, setSkillRefs] = useState<string[]>([])
@@ -45,10 +59,13 @@ export function AgentWorkspace({
   const [pickFilter, setPickFilter] = useState('')
   const [sending, setSending] = useState(false)
   const [permission, setPermission] = useState<PermissionRequestPayload | null>(null)
-  const [statusLine, setStatusLine] = useState<string | null>(null)
+  const [phase, setPhase] = useState<AgentPhase>('idle')
+  const [statusNote, setStatusNote] = useState<string | null>(null)
   const [accessMode, setAccessMode] = useState<AccessMode>('approve')
+  const [plusOpen, setPlusOpen] = useState(false)
   const listRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  const plusRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     window.devdash
@@ -63,13 +80,24 @@ export function AgentWorkspace({
       .catch(() => setSkills([]))
   }, [])
 
+  const refreshCaps = useCallback(() => {
+    getSessionCaps()
+      .then((caps) => setSdkSkills(caps?.skills ?? []))
+      .catch(() => setSdkSkills([]))
+  }, [])
+
+  useEffect(() => {
+    refreshCaps()
+  }, [refreshCaps, taskId])
+
   useEffect(() => {
     let cancelled = false
     setMessages([])
     setPluginRefs([])
     setSkillRefs([])
     setDraft('')
-    setStatusLine(null)
+    setStatusNote(null)
+    setPhase('idle')
     Promise.all([listTasks(), loadHistory(taskId)])
       .then(([tasks, history]) => {
         if (cancelled) return
@@ -77,6 +105,7 @@ export function AgentWorkspace({
         setTask(t)
         setAccessMode(t?.accessMode ?? 'approve')
         setMessages(history)
+        setPhase(t?.status === 'running' ? 'thinking' : t?.status === 'error' ? 'error' : 'idle')
       })
       .catch(() => undefined)
     return () => {
@@ -84,29 +113,28 @@ export function AgentWorkspace({
     }
   }, [taskId])
 
-  useEffect(() => {
-    return onAgentEvent((e) => {
+  const applyEvent = useCallback(
+    (e: AgentEvent) => {
       if (e.type === 'message' && e.taskId === taskId) {
         setMessages((prev) => {
-          if (prev.some((m) => m.id === e.message.id)) return prev
+          if (prev.some((m) => m.id === e.message.id)) {
+            return prev.map((m) => (m.id === e.message.id ? { ...m, ...e.message } : m))
+          }
           return [...prev, e.message]
         })
-        if (e.message.role === 'assistant') {
-          setStatusLine(null)
-          setSending(false)
-        }
         if (e.message.role === 'user') onTasksChanged()
       } else if (e.type === 'message-update' && e.taskId === taskId) {
         setMessages((prev) =>
-          prev.map((m) =>
-            m.id === e.messageId
-              ? {
-                  ...m,
-                  text: e.text || m.text,
-                  streaming: e.streaming ?? false
-                }
-              : m
-          )
+          prev.map((m) => {
+            if (m.id !== e.messageId) return m
+            return {
+              ...m,
+              ...(e.text !== undefined ? { text: e.text } : {}),
+              ...(e.streaming !== undefined ? { streaming: e.streaming } : {}),
+              ...(e.toolResult !== undefined ? { toolResult: e.toolResult } : {}),
+              ...(e.toolStatus !== undefined ? { toolStatus: e.toolStatus } : {})
+            }
+          })
         )
       } else if (e.type === 'status' && e.taskId === taskId) {
         setTask((t) =>
@@ -119,23 +147,46 @@ export function AgentWorkspace({
               }
             : t
         )
-        if (e.status === 'running') setStatusLine('Agent 运行中…')
-        else if (e.status === 'error') setStatusLine(e.error || '出错了')
-        else setStatusLine(null)
+        if (e.accessMode) setAccessMode(e.accessMode)
+        if (e.phase) setPhase(e.phase)
+        else if (e.status === 'running') setPhase('thinking')
+        else if (e.status === 'error') {
+          setPhase('error')
+          setStatusNote(e.error || '出错了')
+        } else setPhase('idle')
         if (e.status !== 'running') setSending(false)
+        if (e.status === 'running') setStatusNote(null)
+        // SDK init may have published new skills/commands
+        if (e.status === 'running' || e.phase === 'thinking') refreshCaps()
         onTasksChanged()
       } else if (e.type === 'permission' && e.payload.taskId === taskId) {
         setPermission(e.payload)
+        setPhase('waiting')
       } else if (e.type === 'error' && e.taskId === taskId) {
-        setStatusLine(e.message)
+        setStatusNote(e.message)
+        setPhase('error')
         setSending(false)
       }
-    })
-  }, [taskId, onTasksChanged])
+    },
+    [taskId, onTasksChanged, refreshCaps]
+  )
+
+  useEffect(() => onAgentEvent(applyEvent), [applyEvent])
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages])
+
+  useEffect(() => {
+    if (!plusOpen) return
+    const onDoc = (ev: MouseEvent): void => {
+      if (plusRef.current && !plusRef.current.contains(ev.target as Node)) {
+        setPlusOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [plusOpen])
 
   const activeModel = useMemo(() => {
     if (!settings) return null
@@ -153,18 +204,23 @@ export function AgentWorkspace({
 
   const filteredSkills = useMemo(() => {
     const q = pickFilter.trim().toLowerCase()
-    if (!q) return skills
-    return skills.filter(
+    const fsList: SkillInfo[] = skills
+    const extra: SkillInfo[] = sdkSkills
+      .filter((id) => !skills.some((s) => s.id === id))
+      .map((id) => ({ id, title: id, description: 'SDK 发现', source: 'sdk' }))
+    const all = [...fsList, ...extra]
+    if (!q) return all
+    return all.filter(
       (s) =>
         s.id.toLowerCase().includes(q) ||
         s.title.toLowerCase().includes(q) ||
         s.description.toLowerCase().includes(q)
     )
-  }, [skills, pickFilter])
+  }, [skills, sdkSkills, pickFilter])
 
   const insertPlugin = useCallback((id: string) => {
     setPluginRefs((prev) => (prev.includes(id) ? prev : [...prev, id]))
-    setDraft((d) => d.replace(/#([^\s#]*)$/, ''))
+    setDraft((d) => d.replace(/@([^\s@]*)$/, ''))
     setPickKind(null)
     setPickFilter('')
     inputRef.current?.focus()
@@ -175,16 +231,29 @@ export function AgentWorkspace({
     setDraft((d) => d.replace(/\/([^\s/]*)$/, ''))
     setPickKind(null)
     setPickFilter('')
+    setPlusOpen(false)
+    inputRef.current?.focus()
+  }, [])
+
+  /** 编排模式 = /compose-next skill：向草稿注入 slash 命令以便 SDK 分派 */
+  const applyOrchestration = useCallback(() => {
+    setDraft((d) => {
+      const t = d.trimStart()
+      if (t.startsWith('/compose-next')) return d
+      return d ? `/compose-next ${d}` : '/compose-next '
+    })
+    setSkillRefs((prev) => (prev.includes('compose-next') ? prev : [...prev, 'compose-next']))
+    setPlusOpen(false)
     inputRef.current?.focus()
   }, [])
 
   const onDraftChange = (value: string): void => {
     setDraft(value)
-    const hash = value.match(/#([^\s#]*)$/)
+    const at = value.match(/@([^\s@]*)$/)
     const slash = value.match(/\/([^\s/]*)$/)
-    if (hash) {
+    if (at) {
       setPickKind('plugin')
-      setPickFilter(hash[1] ?? '')
+      setPickFilter(at[1] ?? '')
     } else if (slash) {
       setPickKind('skill')
       setPickFilter(slash[1] ?? '')
@@ -202,7 +271,8 @@ export function AgentWorkspace({
       return
     }
     setSending(true)
-    setStatusLine('发送中…')
+    setPhase('thinking')
+    setStatusNote(null)
     const result = await sendMessage({
       taskId,
       text,
@@ -212,7 +282,8 @@ export function AgentWorkspace({
       accessMode
     })
     if (!result.ok) {
-      setStatusLine(result.error || '发送失败')
+      setStatusNote(result.error || '发送失败')
+      setPhase('error')
       setSending(false)
       return
     }
@@ -226,22 +297,42 @@ export function AgentWorkspace({
     const r = await switchModel(taskId, modelId)
     if (r.ok) {
       setTask((t) => (t ? { ...t, modelId } : t))
+      setStatusNote('模型已切换 · 下一动作生效')
     } else {
-      setStatusLine(r.error || '切换模型失败')
+      setStatusNote(r.error || '切换模型失败')
     }
   }
+
+  const onAccessChange = async (mode: AccessMode): Promise<void> => {
+    if (mode === accessMode) return
+    const prev = accessMode
+    setAccessMode(mode)
+    const r = await switchAccessMode(taskId, mode)
+    if (r.ok) {
+      setStatusNote(mode === 'full' ? '已切到完全访问 · 下一动作生效' : '已切到审批模式 · 下一动作生效')
+    } else {
+      setAccessMode(prev)
+      setStatusNote(r.error || '切换访问模式失败')
+    }
+  }
+
+  const running = task?.status === 'running' || sending
+  const statusText = PHASE_LABEL[phase]
 
   return (
     <div className="agent-workspace">
       <header className="agent-header">
         <div className="agent-title">{task?.title || '新任务'}</div>
         <div className="agent-header-right">
-          {task?.status === 'running' ? (
+          <span className={`agent-status-chip phase-${phase}`}>{statusText}</span>
+          <span className="agent-mode-chip">{accessMode === 'full' ? '完全访问' : '审批模式'}</span>
+          {running ? (
             <button
               className="btn-secondary"
               onClick={() => {
                 void cancelSession(taskId)
                 setSending(false)
+                setPhase('idle')
               }}
             >
               停止
@@ -257,24 +348,26 @@ export function AgentWorkspace({
             <div className="agent-empty-desc">
               描述你想要的插件能力，Agent 会在 plugins/ 下新建或修改。
               <br />
-              <code>#</code> 引用插件 · <code>/</code> 引用 skill
+              <code>@</code> 引用插件 · <code>/</code> 引用 skill · <code>+</code> 编排模式
             </div>
           </div>
         )}
         {messages.map((m) => (
           <MessageRow key={m.id} message={m} />
         ))}
-        {statusLine && (
-          <div className={`agent-status${task?.status === 'error' ? ' error' : ''}`}>{statusLine}</div>
-        )}
       </div>
 
       <div className="agent-composer">
+        <div className="composer-statusline">
+          <span className={`agent-status-chip phase-${phase}`}>{statusText}</span>
+          {statusNote && <span className="composer-note">{statusNote}</span>}
+        </div>
+
         {(pluginRefs.length > 0 || skillRefs.length > 0) && (
           <div className="ref-chips">
             {pluginRefs.map((id) => (
               <span key={`p-${id}`} className="ref-chip plugin">
-                #{id}
+                @{id}
                 <button onClick={() => setPluginRefs((prev) => prev.filter((x) => x !== id))}>×</button>
               </span>
             ))}
@@ -291,11 +384,11 @@ export function AgentWorkspace({
           <div className="mention-menu">
             {pickKind === 'plugin' ? (
               <>
-                <div className="mention-label">插件 · #</div>
+                <div className="mention-label">插件 · @</div>
                 {filteredPlugins.length === 0 && <div className="mention-empty">无匹配插件</div>}
                 {filteredPlugins.map((p) => (
                   <button key={p.id} className="mention-item" onMouseDown={() => insertPlugin(p.id)}>
-                    <span className="mention-id">#{p.id}</span>
+                    <span className="mention-id">@{p.id}</span>
                     <span className="mention-title">{p.title}</span>
                   </button>
                 ))}
@@ -318,7 +411,7 @@ export function AgentWorkspace({
         <textarea
           ref={inputRef}
           className="composer-input"
-          placeholder="描述要开发或修改的插件…（# 插件 · / skill）"
+          placeholder="描述要开发或修改的插件…（@ 插件 · / skill · + 编排）"
           value={draft}
           rows={4}
           onChange={(e) => onDraftChange(e.target.value)}
@@ -332,31 +425,65 @@ export function AgentWorkspace({
 
         <div className="composer-footer">
           <div className="composer-footer-left">
+            <div className="plus-menu-wrap" ref={plusRef}>
+              <button
+                type="button"
+                className={`footer-chip plus-btn${plusOpen ? ' active' : ''}`}
+                title="编排模式（/compose-next）"
+                onClick={() => setPlusOpen((v) => !v)}
+              >
+                +
+              </button>
+              {plusOpen && (
+                <div className="plus-menu">
+                  <div className="plus-section-title">编排模式</div>
+                  <button
+                    type="button"
+                    className={`plus-item${skillRefs.includes('compose-next') ? ' active' : ''}`}
+                    onMouseDown={applyOrchestration}
+                  >
+                    <span className="plus-item-title">/compose-next</span>
+                    <span className="plus-item-desc">Compose Next 编排工作流 skill</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
             <div className="mode-toggle" role="group" aria-label="访问模式">
               <button
                 type="button"
                 className={`mode-btn${accessMode === 'approve' ? ' active' : ''}`}
-                title="危险操作需确认"
-                onClick={() => setAccessMode('approve')}
+                title="危险操作需确认；切换后下一动作生效"
+                onClick={() => void onAccessChange('approve')}
               >
                 审批模式
               </button>
               <button
                 type="button"
                 className={`mode-btn${accessMode === 'full' ? ' active' : ''}`}
-                title="跳过权限确认，Agent 自主执行"
-                onClick={() => setAccessMode('full')}
+                title="跳过权限确认；切换后下一动作生效"
+                onClick={() => void onAccessChange('full')}
               >
                 完全访问
               </button>
             </div>
+          </div>
 
+          <div className="composer-footer-right">
             <select
               className="footer-select"
               value={activeModel?.id ?? ''}
-              onChange={(e) => void onModelChange(e.target.value)}
-              title="切换对话模型"
+              onChange={(e) => {
+                const v = e.target.value
+                if (v === '__add__') {
+                  onOpenSettings()
+                  return
+                }
+                void onModelChange(v)
+              }}
+              title="切换对话模型（下一动作生效）"
             >
+              <option value="__add__">添加模型</option>
               {(settings?.presets ?? []).map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.label || p.model}
@@ -366,42 +493,6 @@ export function AgentWorkspace({
                 <option value="">未配置模型</option>
               )}
             </select>
-
-            <button
-              type="button"
-              className={`footer-chip${pickKind === 'skill' ? ' active' : ''}`}
-              title="引用 skill（点击开关，或在输入框键入 /）"
-              onClick={() => {
-                setPickKind((k) => (k === 'skill' ? null : 'skill'))
-                setPickFilter('')
-                inputRef.current?.focus()
-              }}
-            >
-              / skill
-            </button>
-            <button
-              type="button"
-              className={`footer-chip${pickKind === 'plugin' ? ' active' : ''}`}
-              title="引用插件（点击开关，或在输入框键入 #）"
-              onClick={() => {
-                setPickKind((k) => (k === 'plugin' ? null : 'plugin'))
-                setPickFilter('')
-                inputRef.current?.focus()
-              }}
-            >
-              # 插件
-            </button>
-          </div>
-
-          <div className="composer-footer-right">
-            <button
-              type="button"
-              className="btn-icon footer-settings"
-              title="模型设置"
-              onClick={onOpenSettings}
-            >
-              ⚙
-            </button>
             <button
               className="btn-primary composer-send"
               disabled={!draft.trim() || sending}
@@ -416,9 +507,10 @@ export function AgentWorkspace({
       {permission && (
         <PermissionDialog
           payload={permission}
-          onRespond={(allow, reason) => {
-            void respondPermission(permission.requestId, allow, reason)
+          onRespond={(allow, reason, remember, updatedInput) => {
+            void respondPermission(permission.requestId, allow, reason, remember, updatedInput)
             setPermission(null)
+            setPhase((p) => (p === 'waiting' ? 'thinking' : p))
           }}
         />
       )}
@@ -428,22 +520,11 @@ export function AgentWorkspace({
 
 function MessageRow({ message }: { message: ChatMessage }): JSX.Element {
   if (message.role === 'tool') {
-    return (
-      <div className="msg msg-tool">
-        <div className="msg-meta">
-          <span className="msg-role">工具</span>
-          <span className="msg-tool-name">{message.toolName}</span>
-        </div>
-        <pre className="msg-code">{message.text}</pre>
-      </div>
-    )
+    return <ToolCard message={message} />
   }
   if (message.role === 'system') {
     return (
       <div className={`msg msg-system${message.error ? ' error' : ''}`}>
-        <div className="msg-meta">
-          <span className="msg-role">系统</span>
-        </div>
         <div className="msg-text">{message.text}</div>
       </div>
     )
@@ -451,17 +532,35 @@ function MessageRow({ message }: { message: ChatMessage }): JSX.Element {
   const isUser = message.role === 'user'
   return (
     <div className={`msg ${isUser ? 'msg-user' : 'msg-assistant'}`}>
-      <div className="msg-meta">
-        <span className="msg-role">{isUser ? '你' : 'Agent'}</span>
+      <div className="msg-text">
+        {message.text}
         {message.pluginRefs && message.pluginRefs.length > 0 && (
-          <span className="msg-refs">{message.pluginRefs.map((r) => `#${r}`).join(' ')}</span>
+          <span className="msg-refs">{message.pluginRefs.map((r) => `@${r}`).join(' ')}</span>
         )}
         {message.skillRefs && message.skillRefs.length > 0 && (
           <span className="msg-refs">{message.skillRefs.map((r) => `/${r}`).join(' ')}</span>
         )}
-        {message.streaming && <span className="msg-streaming">生成中…</span>}
       </div>
-      <div className="msg-text">{message.text}</div>
+      {message.streaming && <div className="msg-streaming">生成中…</div>}
+    </div>
+  )
+}
+
+function ToolCard({ message }: { message: ChatMessage }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const status = message.toolStatus ?? 'running'
+  const statusLabel = status === 'running' ? '运行中' : status === 'error' ? '失败' : '完成'
+  const body = message.toolResult || message.text
+  return (
+    <div className={`msg msg-tool tool-${status}`}>
+      <button type="button" className="tool-header" onClick={() => setOpen((v) => !v)}>
+        <span className={`tool-dot tool-dot-${status}`} />
+        <span className="tool-name">{message.toolName || '工具'}</span>
+        <span className="tool-summary">{message.toolInput || message.text}</span>
+        <span className="tool-status">{statusLabel}</span>
+        <span className="tool-caret">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && body && <pre className="tool-result">{body}</pre>}
     </div>
   )
 }
@@ -471,44 +570,190 @@ function PermissionDialog({
   onRespond
 }: {
   payload: PermissionRequestPayload
-  onRespond: (allow: boolean, reason?: string) => void
+  onRespond: (
+    allow: boolean,
+    reason?: string,
+    rememberSession?: boolean,
+    updatedInput?: Record<string, unknown>
+  ) => void
 }): JSX.Element {
   const [reason, setReason] = useState('')
+  const isAsk = payload.toolName === 'AskUserQuestion'
+  const askQuestions = useMemo(() => {
+    if (!isAsk) return [] as Array<{
+      question: string
+      header?: string
+      multiSelect?: boolean
+      options?: Array<{ label: string; description?: string }>
+    }>
+    try {
+      const parsed = JSON.parse(payload.inputPreview) as {
+        questions?: Array<{
+          question?: string
+          header?: string
+          multiSelect?: boolean
+          options?: Array<{ label?: string; description?: string }>
+        }>
+      }
+      return (parsed.questions ?? []).map((q) => ({
+        question: q.question ?? '',
+        header: q.header,
+        multiSelect: q.multiSelect,
+        options: (q.options ?? []).map((o) => ({
+          label: o.label ?? '',
+          description: o.description
+        }))
+      }))
+    } catch {
+      return []
+    }
+  }, [isAsk, payload.inputPreview])
+  const [answers, setAnswers] = useState<Record<number, string[]>>({})
+
+  const submitAsk = (): void => {
+    // SDK AskUserQuestionInput: keep original questions; answers is
+    // { [questionText]: string } with multi-select values comma-separated.
+    const answersMap: Record<string, string> = {}
+    let response: string | undefined
+    askQuestions.forEach((q, i) => {
+      const picked = answers[i] ?? []
+      const optionLabels = new Set((q.options ?? []).map((o) => o.label))
+      const structured = picked.filter((a) => optionLabels.has(a))
+      const free = picked.find((a) => !optionLabels.has(a))
+      if (structured.length) {
+        answersMap[q.question] = structured.join(',')
+      }
+      if (free) response = free
+    })
+    const original = (() => {
+      try {
+        const parsed = JSON.parse(payload.inputPreview) as { questions?: unknown }
+        return parsed.questions ?? askQuestions
+      } catch {
+        return askQuestions
+      }
+    })()
+    onRespond(true, undefined, false, {
+      questions: original,
+      answers: answersMap,
+      ...(response ? { response } : {})
+    })
+  }
+
   return (
     <div className="modal-backdrop">
       <div className="modal permission-modal">
         <div className="modal-header">
-          <div className="modal-title">{payload.dangerous ? '危险操作确认' : '操作确认'}</div>
+          <div className="modal-title">
+            {isAsk ? '需要你补充' : payload.dangerous ? '危险操作确认' : '操作确认'}
+          </div>
         </div>
         <div className="modal-body">
           <div className="perm-title">{payload.title}</div>
           {payload.description && <div className="perm-desc">{payload.description}</div>}
-          <div className="perm-meta">
-            <div>
-              <span className="perm-label">工具</span> {payload.toolName}
+          {isAsk ? (
+            <div className="ask-questions">
+              {askQuestions.length === 0 && (
+                <pre className="msg-code">{payload.inputPreview}</pre>
+              )}
+              {askQuestions.map((q, qi) => (
+                <div key={qi} className="ask-q">
+                  <div className="ask-q-title">
+                    {q.header ? <strong>{q.header}</strong> : null} {q.question}
+                  </div>
+                  <div className="ask-options">
+                    {(q.options ?? []).map((o) => {
+                      const selected = (answers[qi] ?? []).includes(o.label)
+                      return (
+                        <button
+                          key={o.label}
+                          type="button"
+                          className={`ask-option${selected ? ' active' : ''}`}
+                          onClick={() => {
+                            setAnswers((prev) => {
+                              const cur = prev[qi] ?? []
+                              const next = q.multiSelect
+                                ? selected
+                                  ? cur.filter((x) => x !== o.label)
+                                  : [...cur, o.label]
+                                : selected
+                                  ? []
+                                  : [o.label]
+                              return { ...prev, [qi]: next }
+                            })
+                          }}
+                        >
+                          <span className="ask-option-label">{o.label}</span>
+                          {o.description && (
+                            <span className="ask-option-desc">{o.description}</span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <input
+                    className="ask-free"
+                    placeholder="或输入自定义答案"
+                    value={(answers[qi] ?? []).find((a) => !(q.options ?? []).some((o) => o.label === a)) ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      setAnswers((prev) => {
+                        const picked = (prev[qi] ?? []).filter((a) =>
+                          (q.options ?? []).some((o) => o.label === a)
+                        )
+                        return { ...prev, [qi]: v ? [...picked, v] : picked }
+                      })
+                    }}
+                  />
+                </div>
+              ))}
             </div>
-            {payload.blockedPath && (
-              <div>
-                <span className="perm-label">路径</span> {payload.blockedPath}
+          ) : (
+            <>
+              <div className="perm-meta">
+                <div>
+                  <span className="perm-label">工具</span> {payload.toolName}
+                </div>
+                {payload.blockedPath && (
+                  <div>
+                    <span className="perm-label">路径</span> {payload.blockedPath}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-          <pre className="msg-code">{payload.inputPreview}</pre>
-          <label className="field">
-            <span>拒绝原因（可选）</span>
-            <input value={reason} onChange={(e) => setReason(e.target.value)} />
-          </label>
+              <pre className="msg-code">{payload.inputPreview}</pre>
+              <label className="field">
+                <span>拒绝原因（可选）</span>
+                <input value={reason} onChange={(e) => setReason(e.target.value)} />
+              </label>
+            </>
+          )}
         </div>
         <div className="modal-footer">
-          <button className="btn-secondary" onClick={() => onRespond(false, reason)}>
-            拒绝
-          </button>
-          <button
-            className={payload.dangerous ? 'btn-danger' : 'btn-primary'}
-            onClick={() => onRespond(true)}
-          >
-            允许
-          </button>
+          {isAsk ? (
+            <>
+              <button className="btn-secondary" onClick={() => onRespond(false, '用户取消了补充输入')}>
+                取消
+              </button>
+              <button className="btn-primary" onClick={submitAsk}>
+                提交
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="btn-secondary" onClick={() => onRespond(false, reason)}>
+                拒绝
+              </button>
+              <button className="btn-secondary" onClick={() => onRespond(true, undefined, true)}>
+                允许并记住本会话
+              </button>
+              <button
+                className={payload.dangerous ? 'btn-danger' : 'btn-primary'}
+                onClick={() => onRespond(true)}
+              >
+                允许
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
