@@ -1084,6 +1084,7 @@ function RepoWorkspace({
   const [commitMsg, setCommitMsg] = useState('')
   const [committing, setCommitting] = useState(false)
   const [pushOpen, setPushOpen] = useState(false)
+  const [unpushedCount, setUnpushedCount] = useState(0)
   const [commits, setCommits] = useState<CommitInfo[]>([])
   const [selectedCommit, setSelectedCommit] = useState<CommitInfo | null>(null)
   const [commitFiles, setCommitFiles] = useState<DiffFileInfo[]>([])
@@ -1208,10 +1209,19 @@ function RepoWorkspace({
     }
   }
 
+  const refreshUnpushed = async () => {
+    try {
+      const list = await api.unpushed(repo.path)
+      setUnpushedCount(list.length)
+    } catch {
+      setUnpushedCount(0)
+    }
+  }
+
   useEffect(() => {
     void (async () => {
       try {
-        await Promise.all([refreshBranches(), refreshStatus(), refreshLog()])
+        await Promise.all([refreshBranches(), refreshStatus(), refreshLog(), refreshUnpushed()])
       } finally {
         setReady(true)
       }
@@ -1417,6 +1427,7 @@ function RepoWorkspace({
       setCommitMode(false)
       await refreshStatus()
       await refreshLog()
+      await refreshUnpushed()
       if (opts?.thenPush) setPushOpen(true)
       return true
     } catch (e) {
@@ -1501,7 +1512,7 @@ function RepoWorkspace({
                         .tasks('pull', 'git pull', () => api.pull(repo.path))
                         .then(() => {
                           onToast('拉取成功')
-                          return Promise.all([refreshStatus(), refreshBranches(), refreshLog()])
+                          return Promise.all([refreshStatus(), refreshBranches(), refreshLog(), refreshUnpushed()])
                         })
                         .catch((e: Error) => onToast(e.message, true))
                     }}
@@ -1512,8 +1523,8 @@ function RepoWorkspace({
                     </svg>
                   </button>
                   <button
-                    className="gm-btn icon"
-                    title="推送 Push"
+                    className={cx('gm-btn icon', unpushedCount > 0 && 'primary')}
+                    title={unpushedCount > 0 ? `推送 Push · ${unpushedCount} 条未推送` : '推送 Push'}
                     aria-label="Push"
                     onClick={() => setPushOpen(true)}
                   >
@@ -1521,6 +1532,7 @@ function RepoWorkspace({
                       <path d="M8 12V3M4.5 6.5L8 3l3.5 3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                       <path d="M3 13h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                     </svg>
+                    {unpushedCount > 0 && <span className="gm-badge">{unpushedCount}</span>}
                   </button>
                   <button
                     className={cx('gm-btn icon', commitMode && 'primary')}
@@ -1770,6 +1782,7 @@ function RepoWorkspace({
           onPushed={() => {
             void refreshStatus()
             void refreshLog()
+            void refreshUnpushed()
           }}
         />
       )}

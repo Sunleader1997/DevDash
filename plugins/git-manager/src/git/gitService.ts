@@ -328,8 +328,15 @@ export class GitService {
       try {
         return await this.logRange(repoPath, `origin/${branch}..HEAD`, limit)
       } catch {
-        // No remote tracking — show recent commits as reference
-        return this.log(repoPath, Math.min(limit, 10), 0)
+        // No upstream and no origin/<branch>. If a remote exists, local commits
+        // are still pending first push; without any remote there is nothing to push.
+        try {
+          const remotes = await git(repoPath, ['remote'])
+          if (!remotes.trim()) return []
+          return this.log(repoPath, limit, 0)
+        } catch {
+          return []
+        }
       }
     }
   }
