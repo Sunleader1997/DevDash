@@ -1,5 +1,7 @@
 import { BrowserWindow, app } from 'electron'
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 import type { CanUseTool, PermissionResult, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import type {
@@ -16,6 +18,38 @@ import * as sessionStore from './sessionStore'
 import { classifyTool, denyAllPending, requestPermission, setAllowToolForSession } from './permissionBridge'
 import { pluginRegistry } from '../plugin/registry'
 import { buildSkillContext, listSkills } from './skills'
+
+/**
+ * Native Claude Code CLI shipped with the installer (extraResources) or the
+ * optional platform package in node_modules during development.
+ * Electron cannot spawn a binary from inside asar, so packaged builds always
+ * use the unpacked extraResources copy and pass it to the SDK explicitly.
+ */
+const NATIVE_CLI_SPEC: Record<string, string> = {
+  'win32-x64': '@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe',
+  'win32-arm64': '@anthropic-ai/claude-agent-sdk-win32-arm64/claude.exe',
+  'darwin-x64': '@anthropic-ai/claude-agent-sdk-darwin-x64/claude',
+  'darwin-arm64': '@anthropic-ai/claude-agent-sdk-darwin-arm64/claude',
+  'linux-x64': '@anthropic-ai/claude-agent-sdk-linux-x64/claude',
+  'linux-arm64': '@anthropic-ai/claude-agent-sdk-linux-arm64/claude'
+}
+
+function resolveClaudeCliPath(): string | undefined {
+  const binName = process.platform === 'win32' ? 'claude.exe' : 'claude'
+  if (app.isPackaged) {
+    const packed = path.join(process.resourcesPath, 'claude', binName)
+    return existsSync(packed) ? packed : undefined
+  }
+  const spec = NATIVE_CLI_SPEC[`${process.platform}-${process.arch}`]
+  if (!spec) return undefined
+  try {
+    const require_ = createRequire(path.join(app.getAppPath(), 'package.json'))
+    const resolved = require_.resolve(spec)
+    return existsSync(resolved) ? resolved : undefined
+  } catch {
+    return undefined
+  }
+}
 
 const SYSTEM_APPEND = `
 你是 DevDash 插件开发助手。目标：通过新建或修改 plugins/* 下的 npm 插件，交付可被宿主发现与加载的插件应用。
@@ -679,10 +713,15 @@ async function startSession(
       ? { type: 'adaptive' as const }
       : undefined
 
+  const claudeCli = resolveClaudeCliPath()
+
   const q = query({
     prompt: stream,
     options: {
       cwd: repoRoot(),
+      // Packaged: binary lives in extraResources (cannot spawn from asar).
+      // Dev: optional platform package under node_modules.
+      ...(claudeCli ? { pathToClaudeCodeExecutable: claudeCli } : {}),
       // Force our preset model/env even when user/project settings pin another model.
       model: preset.model,
       env,

@@ -35,6 +35,12 @@ asar: true
 extraResources:
   - from: bundled-skills
     to: skills
+  # Native Claude Code CLI for @anthropic-ai/claude-agent-sdk.
+  # Optional platform package is not collected from nested optionalDependencies;
+  # also cannot be spawned from inside asar — ship unpacked and pass
+  # pathToClaudeCodeExecutable at query time.
+  - from: node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe
+    to: claude/claude.exe
 
 win:
   icon: assets/icons/icon.ico
