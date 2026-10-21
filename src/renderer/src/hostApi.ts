@@ -5,6 +5,8 @@ export interface DevDashPluginMeta {
   title: string
   icon?: string
   order?: number
+  /** Landing view declared by the plugin manifest (`devdash.home`). */
+  home?: boolean
   packageName: string
   rootDir: string
   uiEntry: string

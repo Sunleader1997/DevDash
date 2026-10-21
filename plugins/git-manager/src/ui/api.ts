@@ -30,6 +30,7 @@ export function invokeDomain<T>(suffix: string, ...args: unknown[]): Promise<T> 
 export const api = {
   pickDirectory: () => invoke<string | null>('fs:pick-directory'),
   openPath: (p: string) => invoke<void>('shell:open-path', p),
+  openExternal: (p: string) => invoke<void>('shell:open-external', p),
   showInFolder: (p: string) => invoke<void>('shell:show-in-folder', p),
   findRepos: (root: string, maxDepth?: number) => invokeDomain<string[]>('git:find-repos', root, maxDepth),
   repoInfo: (repoPath: string) => invokeDomain<RepoInfo>('git:repo-info', repoPath),

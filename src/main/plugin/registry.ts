@@ -11,6 +11,7 @@ const HOST_CHANNEL_NAMES = new Set([
   'plugin:list',
   'fs:pick-directory',
   'shell:open-path',
+  'shell:open-external',
   'shell:show-in-folder',
   'fs:read-text-file',
   'fs:probe-file',
@@ -31,6 +32,8 @@ interface PackageManifest {
     title: string
     icon?: string
     order?: number
+    /** When true the plugin is the app's landing view. */
+    home?: boolean
     ui?: string
     main?: string
     ipc?: string[]
@@ -69,6 +72,7 @@ function toMeta(rootDir: string, pkg: PackageManifest): DevDashPluginMeta | null
     title: d.title,
     icon: d.icon,
     order: d.order ?? 100,
+    home: d.home === true,
     packageName: pkg.name ?? d.id,
     rootDir,
     uiEntry: path.resolve(rootDir, uiRel),

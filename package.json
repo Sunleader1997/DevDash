@@ -20,6 +20,7 @@
     "postinstall": "npm run build:plugins && npm run ensure:electron"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.306",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

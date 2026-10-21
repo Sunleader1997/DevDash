@@ -2,6 +2,7 @@ import { app, BrowserWindow, shell, protocol, ipcMain, nativeImage } from 'elect
 import { join } from 'node:path'
 import { registerIpc, registerPluginProtocol } from './ipc'
 import { pluginRegistry } from './plugin/registry'
+import { setupAgent } from './agent/setup'
 
 const ICONS_DIR = join(app.getAppPath(), 'assets/icons')
 const APP_ICON = join(ICONS_DIR, 'icon.png')
@@ -97,6 +98,7 @@ app.whenReady().then(async () => {
   registerPluginProtocol()
   registerWindowControls()
   registerIpc()
+  setupAgent()
   // Discover + activate plugin mains before the window so preload can allow their IPC.
   await pluginRegistry.discover()
   await pluginRegistry.loadAllMains()

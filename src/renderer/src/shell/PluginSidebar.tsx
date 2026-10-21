@@ -7,24 +7,88 @@ export type PluginListItem = {
   uiUrl: string
 }
 
+export type TaskListItem = {
+  id: string
+  title: string
+  status: 'idle' | 'running' | 'error'
+}
+
 export function PluginSidebar({
   plugins,
   activeId,
-  onSelect
+  tasks,
+  activeTaskId,
+  onSelectPlugin,
+  onSelectTask,
+  onNewTask,
+  onDeleteTask,
+  onOpenSettings
 }: {
   plugins: PluginListItem[]
   activeId: string | null
-  onSelect: (id: string) => void
+  tasks: TaskListItem[]
+  activeTaskId: string | null
+  onSelectPlugin: (id: string) => void
+  onSelectTask: (id: string) => void
+  onNewTask: () => void
+  onDeleteTask: (id: string) => void
+  onOpenSettings: () => void
 }): JSX.Element {
   return (
     <aside className="sidebar">
+      <div className="sidebar-top">
+        <button className="sidebar-new-task" onClick={onNewTask}>
+          ＋ 新建任务
+        </button>
+      </div>
+
+      <div className="sidebar-section-label">对话任务</div>
+      <nav className="task-list">
+        {tasks.map((t) => (
+          <div key={t.id} className={`task-item${activeTaskId === t.id ? ' active' : ''}`}>
+            <button
+              className="task-item-title"
+              onClick={() => onSelectTask(t.id)}
+              title={t.title}
+              style={{
+                border: 'none',
+                background: 'transparent',
+                color: 'inherit',
+                cursor: 'pointer',
+                textAlign: 'left',
+                padding: 0,
+                font: 'inherit'
+              }}
+            >
+              {t.status === 'running' ? '● ' : ''}
+              {t.title}
+            </button>
+            <button
+              className="task-item-del"
+              title="删除任务"
+              onClick={(e) => {
+                e.stopPropagation()
+                onDeleteTask(t.id)
+              }}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+        {tasks.length === 0 && (
+          <div style={{ padding: '6px 10px', color: 'var(--fg-secondary)', fontSize: 12 }}>
+            暂无任务，点上方新建。
+          </div>
+        )}
+      </nav>
+
       <div className="sidebar-section-label">插件应用</div>
       <nav className="plugin-list">
         {plugins.map((p) => (
           <button
             key={p.id}
             className={`plugin-item${activeId === p.id ? ' active' : ''}`}
-            onClick={() => onSelect(p.id)}
+            onClick={() => onSelectPlugin(p.id)}
             title={p.packageName}
           >
             <span className="plugin-icon">{iconGlyph(p.icon)}</span>
@@ -33,10 +97,17 @@ export function PluginSidebar({
         ))}
         {plugins.length === 0 && (
           <div style={{ padding: '8px 10px', color: 'var(--fg-secondary)', fontSize: 12 }}>
-            未发现插件。可将 npm 插件安装到 plugins/ 目录。
+            未发现插件。可在对话中用 Agent 新建。
           </div>
         )}
       </nav>
+
+      <div className="sidebar-footer">
+        <button className="sidebar-settings-btn" onClick={onOpenSettings} title="模型设置">
+          <span aria-hidden>⚙</span>
+          <span>设置</span>
+        </button>
+      </div>
     </aside>
   )
 }
@@ -49,6 +120,8 @@ function iconGlyph(icon?: string): string {
       return '{}'
     case 'chart':
       return '◈'
+    case 'moon':
+      return '☾'
     default:
       return '◆'
   }

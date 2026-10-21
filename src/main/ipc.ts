@@ -79,6 +79,7 @@ export function registerIpc(): void {
       title: m.title,
       icon: m.icon,
       order: m.order,
+      home: m.home,
       packageName: m.packageName,
       // renderer loads ESM through custom protocol
       uiUrl: `${PLUGIN_SCHEME}://${m.id}/${path.relative(m.rootDir, m.uiEntry).replace(/\\/g, '/')}`
@@ -95,6 +96,13 @@ export function registerIpc(): void {
 
   ipcMain.handle('shell:open-path', async (_e, p: string) => {
     await shell.openPath(p)
+  })
+
+  ipcMain.handle('shell:open-external', async (_e, p: string) => {
+    if (!/^https?:\/\//i.test(p)) {
+      throw new Error('仅允许打开 http(s) 链接')
+    }
+    await shell.openExternal(p)
   })
 
   ipcMain.handle('shell:show-in-folder', async (_e, p: string) => {

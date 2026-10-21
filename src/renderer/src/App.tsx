@@ -1,8 +1,13 @@
-import { useEffect, useState, ComponentType, Suspense } from 'react'
+import { useCallback, useEffect, useState, ComponentType, Suspense } from 'react'
 import type { DevDashPluginMeta } from './hostApi'
-import { PluginSidebar } from './shell/PluginSidebar'
+import { PluginSidebar, type TaskListItem } from './shell/PluginSidebar'
 import { TaskFooter } from './shell/TaskFooter'
 import { ErrorBoundary } from './shell/ErrorBoundary'
+import { AgentWorkspace } from './agent/AgentWorkspace'
+import { SettingsModal } from './agent/SettingsModal'
+import type { AgentSettings } from './agent/types'
+import { createTask, deleteTask, getSettings, listTasks } from './agent/agentApi'
+import './agent/agent.css'
 
 type DiscoveredPlugin = Omit<DevDashPluginMeta, 'rootDir' | 'uiEntry'> & { uiUrl: string }
 
@@ -11,11 +16,26 @@ type LoadedPlugin = {
   App: ComponentType
 }
 
+type View =
+  | { kind: 'agent'; taskId: string }
+  | { kind: 'plugin'; pluginId: string }
+
 export default function App(): JSX.Element {
   const [plugins, setPlugins] = useState<DiscoveredPlugin[]>([])
-  const [activeId, setActiveId] = useState<string | null>(null)
+  const [tasks, setTasks] = useState<TaskListItem[]>([])
+  const [view, setView] = useState<View | null>(null)
   const [loaded, setLoaded] = useState<Record<string, LoadedPlugin>>({})
   const [error, setError] = useState<string | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [agentSettings, setAgentSettings] = useState<AgentSettings | null>(null)
+
+  const refreshTasks = useCallback(() => {
+    listTasks()
+      .then((list) => {
+        setTasks(list.map((t) => ({ id: t.id, title: t.title, status: t.status })))
+      })
+      .catch(() => setTasks([]))
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -25,7 +45,6 @@ export default function App(): JSX.Element {
         if (cancelled) return
         const list = raw as DiscoveredPlugin[]
         setPlugins(list)
-        if (list[0]) setActiveId((prev) => prev ?? list[0].id)
       })
       .catch((e: Error) => setError(e.message))
     return () => {
@@ -34,7 +53,33 @@ export default function App(): JSX.Element {
   }, [])
 
   useEffect(() => {
-    if (!activeId) return
+    refreshTasks()
+    getSettings()
+      .then(setAgentSettings)
+      .catch(() => setAgentSettings(null))
+  }, [refreshTasks])
+
+  // Default view: plugin declaring `home` (landing), else first agent task, else first plugin
+  useEffect(() => {
+    if (view) return
+    const landing = plugins.find((p) => p.home)
+    if (landing) {
+      setView({ kind: 'plugin', pluginId: landing.id })
+      return
+    }
+    if (tasks.length > 0) {
+      setView({ kind: 'agent', taskId: tasks[0].id })
+      return
+    }
+    if (plugins.length > 0) {
+      setView({ kind: 'plugin', pluginId: plugins[0].id })
+    }
+  }, [view, tasks, plugins])
+
+  // Lazy-load plugin UI when viewing a plugin
+  useEffect(() => {
+    if (view?.kind !== 'plugin') return
+    const activeId = view.pluginId
     const meta = plugins.find((p) => p.id === activeId)
     if (!meta || loaded[activeId]) return
     let cancelled = false
@@ -55,9 +100,35 @@ export default function App(): JSX.Element {
     return () => {
       cancelled = true
     }
-  }, [activeId, plugins, loaded])
+  }, [view, plugins, loaded])
 
-  const active = activeId ? loaded[activeId] : null
+  const onNewTask = (): void => {
+    void createTask('新任务')
+      .then((t) => {
+        refreshTasks()
+        setView({ kind: 'agent', taskId: t.id })
+      })
+      .catch((e: Error) => setError(e.message))
+  }
+
+  const onDeleteTask = (id: string): void => {
+    void deleteTask(id)
+      .then(() => {
+        // Optimistic: drop from list immediately so UI responds
+        setTasks((prev) => prev.filter((t) => t.id !== id))
+        setView((v) => (v?.kind === 'agent' && v.taskId === id ? null : v))
+        refreshTasks()
+      })
+      .catch((e: Error) => setError(e.message))
+  }
+
+  const activePlugin = view?.kind === 'plugin' ? loaded[view.pluginId] : null
+  const titlePage =
+    view?.kind === 'agent'
+      ? 'Agent 任务'
+      : activePlugin
+        ? activePlugin.meta.title
+        : 'DevDash'
 
   return (
     <div className="app-shell">
@@ -85,17 +156,23 @@ export default function App(): JSX.Element {
           <div className="titlebar-brand">
             <span className="titlebar-dot" />
             <span className="titlebar-name">DevDash</span>
-            {active && (
-              <>
-                <span className="titlebar-sep">/</span>
-                <span className="titlebar-page">{active.meta.title}</span>
-              </>
-            )}
+            <span className="titlebar-sep">/</span>
+            <span className="titlebar-page">{titlePage}</span>
           </div>
         </div>
       </header>
       <div className="app-body">
-        <PluginSidebar plugins={plugins} activeId={activeId} onSelect={setActiveId} />
+        <PluginSidebar
+          plugins={plugins}
+          activeId={view?.kind === 'plugin' ? view.pluginId : null}
+          tasks={tasks}
+          activeTaskId={view?.kind === 'agent' ? view.taskId : null}
+          onSelectPlugin={(id) => setView({ kind: 'plugin', pluginId: id })}
+          onSelectTask={(id) => setView({ kind: 'agent', taskId: id })}
+          onNewTask={onNewTask}
+          onDeleteTask={onDeleteTask}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
         <main className="workspace">
           <div className="workspace-body">
             {error ? (
@@ -105,17 +182,26 @@ export default function App(): JSX.Element {
                   <div>{error}</div>
                 </div>
               </div>
-            ) : active ? (
-              <ErrorBoundary key={active.meta.id}>
+            ) : view?.kind === 'agent' ? (
+              <AgentWorkspace
+                key={view.taskId}
+                taskId={view.taskId}
+                settings={agentSettings}
+                onSettingsChange={setAgentSettings}
+                onOpenSettings={() => setSettingsOpen(true)}
+                onTasksChanged={refreshTasks}
+              />
+            ) : activePlugin ? (
+              <ErrorBoundary key={activePlugin.meta.id}>
                 <Suspense fallback={<div className="empty-state">加载插件…</div>}>
-                  <active.App />
+                  <activePlugin.App />
                 </Suspense>
               </ErrorBoundary>
             ) : (
               <div className="empty-state">
                 <div>
                   <div style={{ fontWeight: 600, marginBottom: 8 }}>DevDash</div>
-                  <div>从左侧选择一个插件应用开始</div>
+                  <div>左上角「新建任务」，用对话开发插件</div>
                 </div>
               </div>
             )}
@@ -126,6 +212,11 @@ export default function App(): JSX.Element {
           </footer>
         </main>
       </div>
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onSaved={(s) => setAgentSettings(s)}
+      />
     </div>
   )
 }

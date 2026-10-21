@@ -690,6 +690,31 @@ function GlobalSettingsPanel({
   const [membersError, setMembersError] = useState<string | null>(null)
   const [glSaved, setGlSaved] = useState(false)
 
+  /** Persist whitelist immediately so add/remove never depends on the 保存 button. */
+  const persistWhitelist = async (next: string[], max = maxMb) => {
+    const sorted = [...new Set(next.map((e) => e.trim().toLowerCase()).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b)
+    )
+    setWhitelist(sorted)
+    try {
+      await api.settingsSave({ textWhitelist: sorted, maxFileSizeMb: Math.max(1, Math.min(200, max)) })
+    } catch (e) {
+      onToast((e as Error).message, true)
+    }
+  }
+
+  const addWhitelistEntry = () => {
+    const v = draftExt.trim().replace(/^\./, '').toLowerCase()
+    if (!v) return
+    if (whitelist.includes(v)) {
+      onToast(`「${v}」已在名单中`)
+      setDraftExt('')
+      return
+    }
+    void persistWhitelist([...whitelist, v])
+    setDraftExt('')
+  }
+
   const loadMembers = async (s: GitLabSettings) => {
     if (s.baseUrl && s.token && s.projectPath) {
       try {
@@ -857,13 +882,15 @@ function GlobalSettingsPanel({
           <div className="gm-field">
             <label>文本直接打开白名单（扩展名 / 文件名）</label>
             <div className="gm-chips" style={{ marginBottom: 8 }}>
-              {whitelist.map((e) => (
+              {[...whitelist]
+                .sort((a, b) => a.localeCompare(b))
+                .map((e) => (
                 <button
                   key={e}
                   type="button"
                   className="gm-chip on"
                   title="点击移除"
-                  onClick={() => setWhitelist((prev) => prev.filter((x) => x !== e))}
+                  onClick={() => void persistWhitelist(whitelist.filter((x) => x !== e))}
                 >
                   {e} ×
                 </button>
@@ -876,35 +903,27 @@ function GlobalSettingsPanel({
                 onChange={(e) => setDraftExt(e.target.value)}
                 onKeyDown={(e) => {
                   if ((e as { key?: string }).key === 'Enter') {
-                    const v = draftExt.trim().replace(/^\./, '').toLowerCase()
-                    if (v && !whitelist.includes(v)) setWhitelist((p) => [...p, v])
-                    setDraftExt('')
+                    addWhitelistEntry()
                   }
                 }}
               />
-              <button
-                className="gm-btn"
-                onClick={() => {
-                  const v = draftExt.trim().replace(/^\./, '').toLowerCase()
-                  if (v && !whitelist.includes(v)) setWhitelist((p) => [...p, v])
-                  setDraftExt('')
-                }}
-              >
+              <button className="gm-btn" type="button" onClick={addWhitelistEntry}>
                 添加
               </button>
             </div>
+            <div className="gm-settings-hint">添加 / 移除后立即生效并保存，无需再点「保存」。</div>
           </div>
 
           <div className="gm-field">
             <label>预置</label>
             <div className="gm-chips">
-              <button type="button" className="gm-chip" onClick={() => setWhitelist([...defaults])}>
+              <button type="button" className="gm-chip" onClick={() => void persistWhitelist([...defaults])}>
                 重置为预置
               </button>
               <button
                 type="button"
                 className="gm-chip"
-                onClick={() => setWhitelist((prev) => [...new Set([...prev, ...defaults])])}
+                onClick={() => void persistWhitelist([...whitelist, ...defaults])}
               >
                 合并预置
               </button>
@@ -1351,7 +1370,14 @@ function RepoWorkspace({
       // Prefer extension; for dotfiles use full basename (gitignore / .gitignore)
       const base = filePath.split('/').pop() ?? filePath
       const ext = base.includes('.') && !base.startsWith('.') ? (base.split('.').pop() || '') : base.replace(/^\./, '')
-      if (ext) await api.settingsAddExt(ext)
+      if (ext) {
+        try {
+          await api.settingsAddExt(ext)
+          onToast(`已加入白名单：${ext.toLowerCase()}`)
+        } catch (e) {
+          onToast(`加入白名单失败：${(e as Error).message}`, true)
+        }
+      }
     }
     await api.tasks(`force-${filePath}`, `强制打开 ${opened.label}`, () =>
       openFile(filePath, false, true)
@@ -2663,6 +2689,8 @@ function MrPanel({
   const [reviewers, setReviewers] = useState<number[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [createdMr, setCreatedMr] = useState<{ iid: number; web_url: string; title: string } | null>(null)
+  const [pushNote, setPushNote] = useState<string | null>(null)
 
   useEffect(() => {
     void (async () => {
@@ -2730,8 +2758,14 @@ function MrPanel({
       onToast('请填写 MR 标题', true)
       return
     }
+    if (!newBranch.trim()) {
+      onToast('请填写新分支名', true)
+      return
+    }
     setSubmitting(true)
     setSubmitError(null)
+    setCreatedMr(null)
+    setPushNote(null)
     try {
       await persistCache()
       const s = settings
@@ -2741,9 +2775,16 @@ function MrPanel({
         onToast(msg, true)
         return
       }
+      // 1) Push current HEAD to the configured source branch
+      setPushNote(`正在推送 HEAD → ${newBranch}…`)
+      await api.tasks('mr-push', `推送 → ${newBranch}`, () =>
+        api.push(repo.path, 'origin', `HEAD:refs/heads/${newBranch.trim()}`)
+      )
+      setPushNote(`已推送 ${newBranch}，正在创建 MR…`)
+      // 2) Create MR
       const created = await api.tasks('create-mr', '创建 MR', () =>
         api.createMr(s, {
-          source_branch: newBranch,
+          source_branch: newBranch.trim(),
           target_branch: toBranch,
           title,
           description,
@@ -2751,11 +2792,13 @@ function MrPanel({
           reviewer_ids: reviewers
         })
       )
+      setCreatedMr({ iid: created.iid, web_url: created.web_url, title: created.title })
+      setPushNote(null)
       onToast(`MR 已创建 #${created.iid}`)
-      onClose()
     } catch (e) {
       const msg = (e as Error).message || String(e)
       setSubmitError(msg)
+      setPushNote(null)
       onToast(msg, true)
     } finally {
       setSubmitting(false)
@@ -2768,6 +2811,15 @@ function MrPanel({
         <div className="gm-modal-header">一键 MR · {repo.name}</div>
         <div className="gm-modal-body">
           {submitError && <div className="gm-settings-error">{submitError}</div>}
+          {pushNote && <div className="gm-settings-hint">{pushNote}</div>}
+          {createdMr ? (
+            <div className="gm-mr-success">
+              <div className="gm-mr-success-title">MR 已创建 #{createdMr.iid}</div>
+              <div className="gm-mr-success-sub">{createdMr.title}</div>
+              <div className="gm-mr-success-url">{createdMr.web_url}</div>
+            </div>
+          ) : (
+            <>
           <div className="gm-field">
             <label>标题</label>
             <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="MR 标题" />
@@ -2838,14 +2890,34 @@ function MrPanel({
               ))}
             </div>
           </div>
+            </>
+          )}
         </div>
         <div className="gm-modal-footer">
-          <button className="gm-btn" onClick={onClose}>
-            取消
-          </button>
-          <button className="gm-btn primary" disabled={submitting} onClick={() => void submit()}>
-            {submitting ? '提交中…' : '创建 MR'}
-          </button>
+          {createdMr ? (
+            <>
+              <button className="gm-btn" onClick={onClose}>
+                关闭
+              </button>
+              <button
+                className="gm-btn primary"
+                onClick={() => {
+                  void api.openExternal(createdMr.web_url).catch((e: Error) => onToast(e.message, true))
+                }}
+              >
+                打开 MR
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="gm-btn" onClick={onClose}>
+                取消
+              </button>
+              <button className="gm-btn primary" disabled={submitting} onClick={() => void submit()}>
+                {submitting ? '提交中…' : '创建 MR'}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

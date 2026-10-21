@@ -21,17 +21,28 @@ for (const e of entries) {
     const pkg = JSON.parse(await fs.readFile(pkgPath, 'utf8'))
     if (pkg.devdash?.id) {
       found.push(pkg.devdash.id)
-      if (pkg.devdash.id === 'git-manager') {
-        const ipc = Array.isArray(pkg.devdash.ipc) ? pkg.devdash.ipc : []
+      const manifest = pkg.devdash
+      const ipc = Array.isArray(manifest.ipc) ? manifest.ipc : []
+
+      // Generic manifest checks: every discovered plugin must ship its bundles.
+      const uiJs = path.join(pluginsDir, e.name, manifest.ui ?? 'dist/ui.js')
+      const uiOk = await fs.access(uiJs).then(() => true).catch(() => false)
+      console.log(`${manifest.id} ui bundle:`, uiOk ? 'OK' : 'MISSING')
+      if (!uiOk) process.exit(1)
+
+      if (manifest.main) {
+        const mainJs = path.join(pluginsDir, e.name, manifest.main)
+        const mainOk = await fs.access(mainJs).then(() => true).catch(() => false)
+        console.log(`${manifest.id} main bundle:`, mainOk ? 'OK' : 'MISSING')
+        if (!mainOk) process.exit(1)
+      }
+
+      if (manifest.id === 'git-manager') {
         if (ipc.length === 0) {
           console.error('FAIL: git-manager manifest missing devdash.ipc')
           process.exit(1)
         }
         console.log('git-manager ipc suffixes:', ipc.length)
-        const mainJs = path.join(pluginsDir, e.name, 'dist', 'main.js')
-        const mainOk = await fs.access(mainJs).then(() => true).catch(() => false)
-        console.log('plugin main bundle:', mainOk ? 'OK' : 'MISSING')
-        if (!mainOk) process.exit(1)
       }
     }
   } catch {
