@@ -248,6 +248,20 @@ export class GitService {
     await git(repoPath, ['add', '--', ...paths])
   }
 
+  /** `git remote get-url <remote>` — used to auto-fill GitLab project id. */
+  async remoteUrl(repoPath: string, remote = 'origin'): Promise<string | null> {
+    const name = remote.trim()
+    if (!/^[A-Za-z0-9._-]+$/.test(name) || name.startsWith('-')) {
+      throw new Error(`非法 remote 名: ${remote}`)
+    }
+    try {
+      const out = await git(repoPath, ['remote', 'get-url', name])
+      return out.trim() || null
+    } catch {
+      return null
+    }
+  }
+
   /** Discard uncommitted changes under paths (checkout HEAD + remove untracked). */
   async revertPaths(repoPath: string, paths: string[]): Promise<void> {
     if (!paths.length) return

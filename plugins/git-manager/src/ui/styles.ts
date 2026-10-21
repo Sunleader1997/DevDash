@@ -98,6 +98,7 @@ export const pluginCss = `
   justify-content: center;
 }
 .gm-main {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -950,6 +951,31 @@ export const pluginCss = `
 .gm-settings-ok {
   color: var(--success, #248a3d);
   font-size: 12px;
+}
+.gm-settings-error {
+  color: var(--danger, #ff453a);
+  font-size: 12px;
+  margin: 4px 0;
+  line-height: 1.45;
+  word-break: break-word;
+}
+.gm-repo-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg, #fff) 55%, transparent);
+  pointer-events: none;
+}
+.gm-repo-loading-card {
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: var(--panel, rgba(255, 255, 255, 0.92));
+  color: var(--fg-secondary);
+  font-size: 12px;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.08));
 }
 /* Repo-level settings still use the centered page shell. */
 .gm-settings-page {

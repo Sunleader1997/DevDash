@@ -446,6 +446,7 @@ function GitManagerApp(): JSX.Element {
   const openRepo = async (project: ProjectRecord, repoPath: string) => {
     try {
       const info = await api.repoInfo(repoPath)
+      setGlobalSettingsOpen(false)
       setActiveRepo(info)
       setActiveProject(project)
     } catch (e) {
@@ -578,6 +579,7 @@ function GitManagerApp(): JSX.Element {
           />
         ) : activeRepo ? (
           <RepoWorkspace
+            key={activeRepo.path}
             repo={activeRepo}
             project={activeProject}
             onChanged={(info) => setActiveRepo(info)}
@@ -642,10 +644,22 @@ function GitManagerApp(): JSX.Element {
   )
 }
 
+function MembersError({ message }: { message: string | null }): JSX.Element | null {
+  if (!message) return null
+  return (
+    <div className="gm-settings-error">
+      {message}
+      <div className="gm-settings-hint">
+        请检查 GitLab 项目标识（链接 / projectId / group/repo）与 token 权限（read_api 或 api）。
+      </div>
+    </div>
+  )
+}
+
 /** Global (plugin-wide) open policy + GitLab default config. */
 const GLOBAL_SETTINGS_SECTIONS = [
   { id: 'open-policy', title: '打开策略', subtitle: '文件白名单与大小上限' },
-  { id: 'gitlab-connection', title: 'GitLab 连接', subtitle: 'baseUrl / token / projectPath' },
+  { id: 'gitlab-connection', title: 'GitLab 连接', subtitle: 'baseUrl / token / 项目' },
   { id: 'gitlab-people', title: '默认指派', subtitle: 'Assignee / Reviewer' }
 ] as const
 
@@ -673,18 +687,23 @@ function GlobalSettingsPanel({
     reviewerNames: []
   })
   const [members, setMembers] = useState<GitLabMember[]>([])
+  const [membersError, setMembersError] = useState<string | null>(null)
   const [glSaved, setGlSaved] = useState(false)
 
   const loadMembers = async (s: GitLabSettings) => {
     if (s.baseUrl && s.token && s.projectPath) {
       try {
         setMembers(await api.gitlabMembers(s))
+        setMembersError(null)
         return
-      } catch {
-        /* ignore */
+      } catch (e) {
+        setMembers([])
+        setMembersError((e as Error).message)
+        return
       }
     }
     setMembers([])
+    setMembersError(null)
   }
 
   useEffect(() => {
@@ -946,14 +965,14 @@ function GlobalSettingsPanel({
               />
             </div>
             <div className="gm-field gm-settings-span">
-              <label>projectPath（默认 / 拉取成员）</label>
+              <label>GitLab 项目（默认 / 拉取成员）</label>
               <input
                 value={gl.projectPath}
                 onChange={(e) => setGl((s) => ({ ...s, projectPath: e.target.value }))}
-                placeholder="group/repo"
+                placeholder="粘贴仓库链接 / 数字 projectId / group/repo"
               />
               <div className="gm-settings-hint">
-                仓库未配置 projectPath 时回落到此值；并用于拉取成员列表。
+                支持粘贴仓库链接、数字 projectId 或 group/repo；保存时自动识别。仓库未配置时回落到此值，并用于拉取成员列表。
               </div>
             </div>
           </div>
@@ -980,8 +999,9 @@ function GlobalSettingsPanel({
           <div className="gm-field">
             <label>Assignee（默认）</label>
             <div className="gm-chips">
-              {members.length === 0 && (
-                <span className="gm-settings-hint">配置连接与 projectPath 后可选择成员</span>
+              <MembersError message={membersError} />
+              {!membersError && members.length === 0 && (
+                <span className="gm-settings-hint">配置连接与 GitLab 项目后可选择成员</span>
               )}
               {members.map((m) => (
                 <button
@@ -1034,7 +1054,6 @@ function GlobalSettingsPanel({
 }
 
 type RepoUiState = {
-  view?: 'files' | 'history' | 'settings'
   treeExpanded?: Record<string, boolean>
   sizes?: UiSizes
   selectedFile?: string | null
@@ -1072,6 +1091,7 @@ function RepoWorkspace({
   const [mrOpen, setMrOpen] = useState(false)
   const [sizes, setSizes] = useState<UiSizes>(DEFAULT_SIZES)
   const [hydrated, setHydrated] = useState(false)
+  const [ready, setReady] = useState(false)
 
   const statusByPath = useMemo(() => {
     const map = new Map<string, StatusEntry['status']>()
@@ -1125,7 +1145,7 @@ function RepoWorkspace({
         const key = `repo:${repo.path}`
         const saved = (state[key] ?? {}) as RepoUiState
         if (cancelled) return
-        if (saved.view) setView(saved.view)
+        // view is intentionally not persisted — always enter the files tab.
         if (saved.treeExpanded) setTreeExpanded(saved.treeExpanded)
         if (saved.sizes) setSizes({ ...DEFAULT_SIZES, ...saved.sizes })
         if (saved.selectedFile) {
@@ -1151,7 +1171,6 @@ function RepoWorkspace({
     window.clearTimeout(persistRef.current)
     persistRef.current = window.setTimeout(() => {
       const payload: RepoUiState = {
-        view,
         treeExpanded,
         sizes,
         selectedFile,
@@ -1160,7 +1179,7 @@ function RepoWorkspace({
       void api.storePatch(project.path, { [`repo:${repo.path}`]: payload }).catch(() => undefined)
     }, 300)
     return () => window.clearTimeout(persistRef.current)
-  }, [hydrated, project?.path, repo.path, view, treeExpanded, sizes, selectedFile, selectedCommit])
+  }, [hydrated, project?.path, repo.path, treeExpanded, sizes, selectedFile, selectedCommit])
 
   const refreshBranches = async () => {
     try {
@@ -1190,9 +1209,13 @@ function RepoWorkspace({
   }
 
   useEffect(() => {
-    void refreshBranches()
-    void refreshStatus()
-    void refreshLog()
+    void (async () => {
+      try {
+        await Promise.all([refreshBranches(), refreshStatus(), refreshLog()])
+      } finally {
+        setReady(true)
+      }
+    })()
   }, [repo.path])
 
   const loadPatch = async (filePath: string, force = false): Promise<string> => {
@@ -1406,6 +1429,11 @@ function RepoWorkspace({
 
   return (
     <>
+      {!ready && (
+        <div className="gm-repo-loading" aria-live="polite">
+          <div className="gm-repo-loading-card">加载中…</div>
+        </div>
+      )}
       <header className="gm-titlebar">
         <div className="gm-title">{repo.name}</div>
         <div className="gm-rel">
@@ -1937,6 +1965,7 @@ function ToolSettingsPage({
   const [cfg, setCfg] = useState<GitLabRepoConfig>({})
   const [resolved, setResolved] = useState<GitLabSettings | null>(null)
   const [members, setMembers] = useState<GitLabMember[]>([])
+  const [membersError, setMembersError] = useState<string | null>(null)
   const [assignees, setAssignees] = useState<number[]>([])
   const [reviewers, setReviewers] = useState<number[]>([])
   const [dirtyPeople, setDirtyPeople] = useState(false)
@@ -1956,12 +1985,35 @@ function ToolSettingsPage({
     if (s.baseUrl && s.token && s.projectPath) {
       try {
         setMembers(await api.gitlabMembers(s))
+        setMembersError(null)
         return
-      } catch {
-        /* fall through */
+      } catch (e) {
+        setMembers([])
+        setMembersError((e as Error).message)
+        return
       }
     }
     setMembers([])
+    setMembersError(null)
+  }
+
+  const detectFromRemote = async () => {
+    try {
+      const url = await api.remoteUrl(repoPath, 'origin')
+      if (!url) {
+        onToast('未找到 origin remote', true)
+        return
+      }
+      const id = await api.normalizeProject(url)
+      if (!id) {
+        onToast(`无法从 remote 识别项目: ${url}`, true)
+        return
+      }
+      setCfg((s) => ({ ...s, projectPath: id }))
+      onToast(`已识别为 ${id}`)
+    } catch (e) {
+      onToast((e as Error).message, true)
+    }
   }
 
   useEffect(() => {
@@ -2062,15 +2114,28 @@ function ToolSettingsPage({
         </p>
 
         <div className="gm-field">
-          <label>projectPath（本仓库）</label>
-          <input
-            value={cfg.projectPath ?? ''}
-            onChange={(e) => setCfg((s) => ({ ...s, projectPath: e.target.value }))}
-            placeholder={hint(defaults.projectPath) === '未配置全局默认' ? 'group/repo' : hint(defaults.projectPath)}
-          />
+          <label>GitLab 项目（本仓库）</label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input
+              style={{ flex: 1, minWidth: 0 }}
+              value={cfg.projectPath ?? ''}
+              onChange={(e) => setCfg((s) => ({ ...s, projectPath: e.target.value }))}
+              placeholder={
+                hint(defaults.projectPath) === '未配置全局默认'
+                  ? '粘贴仓库链接 / 数字 projectId / group/repo'
+                  : hint(defaults.projectPath)
+              }
+            />
+            <button className="gm-btn" type="button" onClick={() => void detectFromRemote()}>
+              从 git remote 识别
+            </button>
+          </div>
+          <div className="gm-settings-hint">
+            支持粘贴仓库链接、数字 projectId 或 group/repo；保存时自动识别。
+          </div>
           {!cfg.projectPath?.trim() && defaults.projectPath && (
             <div style={{ color: 'var(--fg-secondary)', fontSize: 11, marginTop: 4 }}>
-              当前使用全局默认 projectPath：{defaults.projectPath}
+              当前使用全局默认项目：{defaults.projectPath}
             </div>
           )}
         </div>
@@ -2112,7 +2177,8 @@ function ToolSettingsPage({
             )}
           </label>
           <div className="gm-chips">
-            {members.length === 0 && (
+            <MembersError message={membersError} />
+            {!membersError && members.length === 0 && (
               <span style={{ color: 'var(--fg-secondary)', fontSize: 12 }}>
                 {effective.baseUrl && effective.token && effective.projectPath
                   ? '无法拉取成员'
@@ -2579,9 +2645,11 @@ function MrPanel({
   const [toBranch, setToBranch] = useState(repo.branch || 'main')
   const [settings, setSettings] = useState<GitLabSettings | null>(null)
   const [members, setMembers] = useState<GitLabMember[]>([])
+  const [membersError, setMembersError] = useState<string | null>(null)
   const [assignees, setAssignees] = useState<number[]>([])
   const [reviewers, setReviewers] = useState<number[]>([])
   const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   useEffect(() => {
     void (async () => {
@@ -2605,6 +2673,7 @@ function MrPanel({
         if (s.baseUrl && s.token && s.projectPath) {
           const list = await api.gitlabMembers(s)
           setMembers(list)
+          setMembersError(null)
           if (cache?.assigneeNames?.length) {
             setAssignees((prev) =>
               prev.length
@@ -2619,9 +2688,13 @@ function MrPanel({
                 : list.filter((m) => cache.reviewerNames!.includes(m.username)).map((m) => m.id)
             )
           }
+        } else {
+          setMembers([])
+          setMembersError(null)
         }
-      } catch {
+      } catch (e) {
         setMembers([])
+        setMembersError((e as Error).message)
       }
     })()
   }, [repo.path])
@@ -2645,11 +2718,14 @@ function MrPanel({
       return
     }
     setSubmitting(true)
+    setSubmitError(null)
     try {
       await persistCache()
       const s = settings
       if (!s || !s.baseUrl || !s.token || !s.projectPath) {
-        onToast('请先在「全局设置」或仓库「设置」中配置 GitLab 连接', true)
+        const msg = '请先在「全局设置」或仓库「设置」中配置 GitLab 连接'
+        setSubmitError(msg)
+        onToast(msg, true)
         return
       }
       const created = await api.tasks('create-mr', '创建 MR', () =>
@@ -2665,7 +2741,9 @@ function MrPanel({
       onToast(`MR 已创建 #${created.iid}`)
       onClose()
     } catch (e) {
-      onToast((e as Error).message, true)
+      const msg = (e as Error).message || String(e)
+      setSubmitError(msg)
+      onToast(msg, true)
     } finally {
       setSubmitting(false)
     }
@@ -2676,6 +2754,7 @@ function MrPanel({
       <div className="gm-modal" onClick={(e) => e.stopPropagation()}>
         <div className="gm-modal-header">一键 MR · {repo.name}</div>
         <div className="gm-modal-body">
+          {submitError && <div className="gm-settings-error">{submitError}</div>}
           <div className="gm-field">
             <label>标题</label>
             <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="MR 标题" />
@@ -2707,7 +2786,8 @@ function MrPanel({
           <div className="gm-field">
             <label>Assignee</label>
             <div className="gm-chips">
-              {members.length === 0 && (
+              <MembersError message={membersError} />
+              {!membersError && members.length === 0 && (
                 <span style={{ color: 'var(--fg-secondary)' }}>配置 GitLab 后可选择成员</span>
               )}
               {members.map((m) => (

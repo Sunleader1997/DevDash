@@ -38,6 +38,9 @@ export const api = {
   addPaths: (repoPath: string, paths: string[]) => invokeDomain<void>('git:add', repoPath, paths),
   ignorePaths: (repoPath: string, paths: string[]) => invokeDomain<void>('git:ignore', repoPath, paths),
   revertPaths: (repoPath: string, paths: string[]) => invokeDomain<void>('git:revert', repoPath, paths),
+  remoteUrl: (repoPath: string, remote?: string) =>
+    invokeDomain<string | null>('git:remote-url', repoPath, remote),
+  normalizeProject: (input: string) => invokeDomain<string>('gitlab:normalize-project', input),
   commit: (repoPath: string, message: string, paths?: string[]) =>
     invokeDomain<string>('git:commit', repoPath, message, paths),
   push: (repoPath: string, remote?: string, ref?: string) =>

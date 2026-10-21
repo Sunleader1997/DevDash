@@ -1,5 +1,10 @@
 import { promises as fs } from 'node:fs'
+import http from 'node:http'
+import https from 'node:https'
 import path from 'node:path'
+import { URL } from 'node:url'
+
+import { normalizeProjectRef } from './projectRef'
 
 let userDataDir = ''
 
@@ -157,7 +162,7 @@ export class GitLabClient {
     const merged: GitLabDefaults = {
       baseUrl: str(next.baseUrl ?? current.baseUrl),
       token: str(next.token ?? current.token),
-      projectPath: str(next.projectPath ?? current.projectPath),
+      projectPath: normalizeProjectRef(str(next.projectPath ?? current.projectPath)),
       assignees: numArray(next.assignees ?? current.assignees),
       reviewers: numArray(next.reviewers ?? current.reviewers),
       assigneeNames: strArray(next.assigneeNames ?? current.assigneeNames),
@@ -180,7 +185,8 @@ export class GitLabClient {
   async saveRepoConfig(repoPath: string, config: GitLabRepoConfig): Promise<GitLabRepoConfig> {
     const all = await this.readRepoConfigs()
     const cleaned: GitLabRepoConfig = {}
-    if (config.projectPath?.trim()) cleaned.projectPath = config.projectPath.trim()
+    const projectPath = normalizeProjectRef(str(config.projectPath))
+    if (projectPath) cleaned.projectPath = projectPath
     if (config.baseUrl?.trim()) cleaned.baseUrl = config.baseUrl.trim().replace(/\/$/, '')
     if (config.token?.trim()) cleaned.token = config.token.trim()
     if (config.assignees && config.assignees.length > 0) {
@@ -211,7 +217,7 @@ export class GitLabClient {
 
     const baseUrl = pick(repo.baseUrl, defaults.baseUrl)
     const token = pick(repo.token, defaults.token)
-    const projectPath = pick(repo.projectPath, defaults.projectPath)
+    const projectPath = normalizeProjectRef(pick(repo.projectPath, defaults.projectPath))
     const assignees = pick(repo.assignees, defaults.assignees)
     const reviewers = pick(repo.reviewers, defaults.reviewers)
     const assigneeNames = pick(repo.assigneeNames, defaults.assigneeNames)
@@ -258,7 +264,61 @@ export class GitLabClient {
   }
 
   private encodeProject(projectPath: string): string {
-    return encodeURIComponent(projectPath)
+    const id = normalizeProjectRef(projectPath)
+    return encodeURIComponent(id)
+  }
+
+  /** raw:true → [code, bodyText]; code 0 means network/TLS failure. Follows 30x up to 5 hops. */
+  private rawRequest(
+    url: string,
+    init: { method?: string; headers?: Record<string, string>; body?: string },
+    redirectsLeft = 5
+  ): Promise<{ code: number; body: string; url: string }> {
+    return new Promise((resolve, reject) => {
+      let u: URL
+      try {
+        u = new URL(url)
+      } catch {
+        reject(new Error(`非法 baseUrl，无法请求 ${url}`))
+        return
+      }
+      const lib = u.protocol === 'http:' ? http : https
+      const req = lib.request(
+        u,
+        {
+          method: init.method ?? 'GET',
+          headers: init.headers,
+          // Internal GitLab often uses self-signed certs — accept them for API calls.
+          rejectUnauthorized: false
+        },
+        (res) => {
+          const status = res.statusCode ?? 0
+          const loc = res.headers.location
+          if (status >= 300 && status < 400 && loc && redirectsLeft > 0) {
+            res.resume()
+            const nextUrl = new URL(loc, u)
+            // Never leak PRIVATE-TOKEN to a different host on redirect.
+            const nextInit =
+              nextUrl.host === u.host
+                ? init
+                : { ...init, headers: { ...init.headers, 'PRIVATE-TOKEN': '' } }
+            this.rawRequest(nextUrl.toString(), nextInit, redirectsLeft - 1).then(resolve, reject)
+            return
+          }
+          const chunks: Buffer[] = []
+          res.on('data', (c: Buffer) => chunks.push(c))
+          res.on('end', () => {
+            resolve({ code: status, body: Buffer.concat(chunks).toString('utf8'), url: u.toString() })
+          })
+        }
+      )
+      req.on('error', (err: NodeJS.ErrnoException) => {
+        const cause = err.code || err.message || 'connection error'
+        reject(new Error(`GitLab 连接失败: ${cause}（已忽略自签名证书，仍失败请检查 baseUrl / 网络）`))
+      })
+      if (init.body) req.write(init.body)
+      req.end()
+    })
   }
 
   private async request<T>(settings: GitLabSettings, pathname: string, init?: RequestInit): Promise<T> {
@@ -266,29 +326,41 @@ export class GitLabClient {
       throw new Error('GitLab baseUrl / token 未配置')
     }
     const url = `${settings.baseUrl.replace(/\/$/, '')}/api/v4${pathname}`
-    const res = await fetch(url, {
-      ...init,
-      headers: {
-        'PRIVATE-TOKEN': settings.token,
-        'Content-Type': 'application/json',
-        ...(init?.headers ?? {})
-      }
-    })
-    const text = await res.text()
-    let body: unknown = null
+    const headers: Record<string, string> = {
+      'PRIVATE-TOKEN': settings.token,
+      'Content-Type': 'application/json',
+      ...((init?.headers as Record<string, string> | undefined) ?? {})
+    }
+    const method = init?.method ?? 'GET'
+    const body = typeof init?.body === 'string' ? init.body : undefined
+    let res: { code: number; body: string; url: string }
     try {
-      body = text ? JSON.parse(text) : null
+      res = await this.rawRequest(url, { method, headers, body })
+    } catch (e) {
+      throw e instanceof Error ? e : new Error(String(e))
+    }
+    let parsed: unknown = null
+    try {
+      parsed = res.body ? JSON.parse(res.body) : null
     } catch {
-      body = text
+      parsed = res.body
     }
-    if (!res.ok) {
+    if (res.code < 200 || res.code >= 300) {
       const msg =
-        typeof body === 'object' && body && 'message' in body
-          ? JSON.stringify((body as { message: unknown }).message)
-          : text || res.statusText
-      throw new Error(`GitLab ${res.status}: ${msg}`)
+        typeof parsed === 'object' && parsed && 'message' in parsed
+          ? JSON.stringify((parsed as { message: unknown }).message)
+          : res.body || `HTTP ${res.code}`
+      // Sanitize: pathname only, never headers / token.
+      const safePath = (() => {
+        try {
+          return new URL(res.url).pathname
+        } catch {
+          return pathname
+        }
+      })()
+      throw new Error(`GitLab ${res.code}: ${msg}（请求 ${safePath}）`)
     }
-    return body as T
+    return parsed as T
   }
 
   async listMembers(settings: GitLabSettings): Promise<GitLabMember[]> {

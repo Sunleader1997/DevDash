@@ -5,6 +5,7 @@ import type {
   MrFormCache
 } from './gitlab/gitlabClient'
 import { gitService } from './git/gitService'
+import { normalizeProjectRef } from './gitlab/projectRef'
 import {
   gitlabClient,
   setUserDataDir as setGitlabUserDataDir
@@ -38,6 +39,9 @@ export default {
     r('git:add', async (repoPath, paths) => gitService.addPaths(repoPath as string, paths as string[]))
     r('git:ignore', async (repoPath, paths) => gitService.ignorePaths(repoPath as string, paths as string[]))
     r('git:revert', async (repoPath, paths) => gitService.revertPaths(repoPath as string, paths as string[]))
+    r('git:remote-url', async (repoPath, remote) =>
+      gitService.remoteUrl(repoPath as string, (remote as string | undefined) ?? 'origin')
+    )
     r('git:commit', async (repoPath, message, paths) =>
       gitService.commit(repoPath as string, message as string, paths as string[] | undefined)
     )
@@ -68,6 +72,7 @@ export default {
     )
 
     r('gitlab:defaults:get', async () => gitlabClient.getDefaults())
+    r('gitlab:normalize-project', async (input) => normalizeProjectRef(String(input ?? '')))
     r('gitlab:defaults:save', async (settings) =>
       gitlabClient.saveDefaults((settings as Partial<GitLabDefaults>) ?? {})
     )
