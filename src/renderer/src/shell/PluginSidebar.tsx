@@ -103,7 +103,15 @@ export function PluginSidebar({
       </nav>
 
       <div className="sidebar-footer">
-        <span className="footer-hint">DevDash</span>
+        <button
+          className="footer-brand"
+          title="打开 GitHub 仓库"
+          onClick={() => {
+            void window.devdash.invoke('shell:open-external', 'https://github.com/Sunleader1997/DevDash')
+          }}
+        >
+          DevDash
+        </button>
         <TaskFooter />
       </div>
     </aside>
