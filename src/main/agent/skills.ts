@@ -3,6 +3,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { app } from 'electron'
 import type { SkillInfo } from './types'
+import { bundledSkillsScanDir, userDataSkillsDir } from './skillSeed'
 
 function repoRoot(): string {
   try {
@@ -14,13 +15,19 @@ function repoRoot(): string {
 
 function skillDirs(): string[] {
   const root = repoRoot()
-  return [
+  const dirs = [
     path.join(root, '.claude', 'skills'),
     path.join(root, '.mimocode', 'skills'),
+    // Seeded from bundled-skills on every launch (always overwrite).
+    userDataSkillsDir(),
     path.join(os.homedir(), '.claude', 'skills'),
     path.join(os.homedir(), '.config', 'mimocode', 'skills'),
     path.join(os.homedir(), '.agents', 'skills')
   ]
+  // Packaged resources sit before home dirs so a failed seed still prefers shipped skills.
+  const packaged = bundledSkillsScanDir()
+  if (packaged) dirs.splice(3, 0, packaged)
+  return dirs
 }
 
 /**

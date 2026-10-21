@@ -36,6 +36,77 @@ const PHASE_LABEL: Record<AgentPhase, string> = {
   error: '出错'
 }
 
+function PhaseIcon({ phase }: { phase: AgentPhase }): JSX.Element {
+  const common = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round' as const }
+  switch (phase) {
+    case 'thinking':
+      return (
+        <span className="phase-icon pulse" title="思考中">
+          <svg viewBox="0 0 12 12">
+            <circle cx="6" cy="6" r="4.2" {...common} />
+            <circle cx="6" cy="6" r="1.3" fill="currentColor" stroke="none" />
+          </svg>
+        </span>
+      )
+    case 'tool':
+      return (
+        <span className="phase-icon spin" title="使用工具">
+          <svg viewBox="0 0 12 12">
+            <path d="M2 8.5 L5 5.5 M7 4 L10 1.5" {...common} />
+            <rect x="1.2" y="8.2" width="3.2" height="2.4" rx="0.6" {...common} />
+            <circle cx="8.6" cy="7.2" r="2.2" {...common} />
+          </svg>
+        </span>
+      )
+    case 'waiting':
+      return (
+        <span className="phase-icon pulse" title="等待确认">
+          <svg viewBox="0 0 12 12">
+            <circle cx="6" cy="6" r="4.2" {...common} />
+            <path d="M6 3.6 V6.2 L7.8 7.4" {...common} />
+          </svg>
+        </span>
+      )
+    case 'streaming':
+      return (
+        <span className="phase-icon blink" title="生成中">
+          <svg viewBox="0 0 12 12">
+            <path d="M2 8 C3.2 5.5 4 4 6 4 S8.8 5.5 10 8" {...common} />
+            <path d="M2 10 H10" {...common} />
+          </svg>
+        </span>
+      )
+    case 'error':
+      return (
+        <span className="phase-icon" title="出错">
+          <svg viewBox="0 0 12 12">
+            <circle cx="6" cy="6" r="4.2" {...common} />
+            <path d="M6 3.8 V6.4" {...common} />
+            <circle cx="6" cy="8.3" r="0.55" fill="currentColor" stroke="none" />
+          </svg>
+        </span>
+      )
+    default:
+      return (
+        <span className="phase-icon" title="就绪">
+          <svg viewBox="0 0 12 12">
+            <circle cx="6" cy="6" r="4.2" {...common} />
+            <path d="M4 6.1 L5.4 7.5 L8.2 4.6" {...common} />
+          </svg>
+        </span>
+      )
+  }
+}
+
+function StatusLabel({ phase }: { phase: AgentPhase }): JSX.Element {
+  return (
+    <span className={`agent-status-chip phase-${phase}`}>
+      <PhaseIcon phase={phase} />
+      {PHASE_LABEL[phase]}
+    </span>
+  )
+}
+
 export function AgentWorkspace({
   taskId,
   settings,
@@ -59,6 +130,7 @@ export function AgentWorkspace({
   const [skillRefs, setSkillRefs] = useState<string[]>([])
   const [pickKind, setPickKind] = useState<PickKind>(null)
   const [pickFilter, setPickFilter] = useState('')
+  const [pickIndex, setPickIndex] = useState(0)
   const [sending, setSending] = useState(false)
   const [permission, setPermission] = useState<PermissionRequestPayload | null>(null)
   const [phase, setPhase] = useState<AgentPhase>('idle')
@@ -228,6 +300,7 @@ export function AgentWorkspace({
     setDraft((d) => d.replace(/@([^\s@]*)$/, ''))
     setPickKind(null)
     setPickFilter('')
+    setPickIndex(0)
     inputRef.current?.focus()
   }, [])
 
@@ -236,9 +309,32 @@ export function AgentWorkspace({
     setDraft((d) => d.replace(/\/([^\s/]*)$/, ''))
     setPickKind(null)
     setPickFilter('')
+    setPickIndex(0)
     setPlusOpen(false)
     inputRef.current?.focus()
   }, [])
+
+  /** Current filtered options for keyboard nav (best match first). */
+  const pickOptions = useMemo(() => {
+    if (pickKind === 'plugin') return filteredPlugins.map((p) => p.id)
+    if (pickKind === 'skill') return filteredSkills.map((s) => s.id)
+    return [] as string[]
+  }, [pickKind, filteredPlugins, filteredSkills])
+
+  /** Keep highlight in range when the filtered list shrinks. */
+  useEffect(() => {
+    if (pickIndex >= pickOptions.length) setPickIndex(0)
+  }, [pickIndex, pickOptions.length])
+
+  const commitPick = useCallback(
+    (id?: string) => {
+      const target = id ?? pickOptions[Math.min(pickIndex, pickOptions.length - 1)]
+      if (!target) return
+      if (pickKind === 'plugin') insertPlugin(target)
+      else if (pickKind === 'skill') insertSkill(target)
+    },
+    [pickKind, pickOptions, pickIndex, insertPlugin, insertSkill]
+  )
 
   /** 编排模式 = /compose-next skill：向草稿注入 slash 命令以便 SDK 分派 */
   const applyOrchestration = useCallback(() => {
@@ -259,12 +355,15 @@ export function AgentWorkspace({
     if (at) {
       setPickKind('plugin')
       setPickFilter(at[1] ?? '')
+      setPickIndex(0)
     } else if (slash) {
       setPickKind('skill')
       setPickFilter(slash[1] ?? '')
+      setPickIndex(0)
     } else {
       setPickKind(null)
       setPickFilter('')
+      setPickIndex(0)
     }
   }
 
@@ -322,7 +421,6 @@ export function AgentWorkspace({
   }
 
   const running = task?.status === 'running' || sending
-  const statusText = PHASE_LABEL[phase]
   const ctxTotal = activeModel?.contextInputTokens ?? 1_000_000
 
   return (
@@ -330,7 +428,7 @@ export function AgentWorkspace({
       <header className="agent-header">
         <div className="agent-title">{task?.title || '新任务'}</div>
         <div className="agent-header-right">
-          <span className={`agent-status-chip phase-${phase}`}>{statusText}</span>
+          <StatusLabel phase={phase} />
           <span className="agent-mode-chip">{accessMode === 'full' ? '完全访问' : '审批模式'}</span>
           {running ? (
             <button
@@ -364,36 +462,23 @@ export function AgentWorkspace({
       </div>
 
       <div className="agent-composer">
-        <div className="composer-statusline">
-          <span className={`agent-status-chip phase-${phase}`}>{statusText}</span>
-          {statusNote && <span className="composer-note">{statusNote}</span>}
-        </div>
-
-        {(pluginRefs.length > 0 || skillRefs.length > 0) && (
-          <div className="ref-chips">
-            {pluginRefs.map((id) => (
-              <span key={`p-${id}`} className="ref-chip plugin">
-                @{id}
-                <button onClick={() => setPluginRefs((prev) => prev.filter((x) => x !== id))}>×</button>
-              </span>
-            ))}
-            {skillRefs.map((id) => (
-              <span key={`s-${id}`} className="ref-chip skill">
-                /{id}
-                <button onClick={() => setSkillRefs((prev) => prev.filter((x) => x !== id))}>×</button>
-              </span>
-            ))}
-          </div>
-        )}
-
-        {pickKind && (
-          <div className="mention-menu">
+        {pickKind && pickOptions.length > 0 && (
+          <div className="mention-menu" role="listbox">
             {pickKind === 'plugin' ? (
               <>
-                <div className="mention-label">插件 · @</div>
-                {filteredPlugins.length === 0 && <div className="mention-empty">无匹配插件</div>}
-                {filteredPlugins.map((p) => (
-                  <button key={p.id} className="mention-item" onMouseDown={() => insertPlugin(p.id)}>
+                <div className="mention-label">插件 · @（↑↓ 选择 · Tab 补全）</div>
+                {filteredPlugins.map((p, i) => (
+                  <button
+                    key={p.id}
+                    className={`mention-item${i === pickIndex ? ' active' : ''}`}
+                    role="option"
+                    aria-selected={i === pickIndex}
+                    onMouseEnter={() => setPickIndex(i)}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      insertPlugin(p.id)
+                    }}
+                  >
                     <span className="mention-id">@{p.id}</span>
                     <span className="mention-title">{p.title}</span>
                   </button>
@@ -401,10 +486,19 @@ export function AgentWorkspace({
               </>
             ) : (
               <>
-                <div className="mention-label">Skill · /</div>
-                {filteredSkills.length === 0 && <div className="mention-empty">无匹配 skill</div>}
-                {filteredSkills.map((s) => (
-                  <button key={s.id} className="mention-item" onMouseDown={() => insertSkill(s.id)}>
+                <div className="mention-label">Skill · /（↑↓ 选择 · Tab 补全）</div>
+                {filteredSkills.map((s, i) => (
+                  <button
+                    key={s.id}
+                    className={`mention-item${i === pickIndex ? ' active' : ''}`}
+                    role="option"
+                    aria-selected={i === pickIndex}
+                    onMouseEnter={() => setPickIndex(i)}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      insertSkill(s.id)
+                    }}
+                  >
                     <span className="mention-id">/{s.id}</span>
                     <span className="mention-title">{s.title}</span>
                   </button>
@@ -415,6 +509,24 @@ export function AgentWorkspace({
         )}
 
         <div className="composer-box">
+          <div className="composer-header">
+            <StatusLabel phase={phase} />
+            {statusNote && <span className="composer-note">{statusNote}</span>}
+            <span className="composer-header-spacer" />
+            {skillRefs.map((id) => (
+              <span key={`hs-${id}`} className="ref-chip skill">
+                /{id}
+                <button onClick={() => setSkillRefs((prev) => prev.filter((x) => x !== id))}>×</button>
+              </span>
+            ))}
+            {pluginRefs.map((id) => (
+              <span key={`hp-${id}`} className="ref-chip plugin">
+                @{id}
+                <button onClick={() => setPluginRefs((prev) => prev.filter((x) => x !== id))}>×</button>
+              </span>
+            ))}
+          </div>
+
           <textarea
             ref={inputRef}
             className="composer-input"
@@ -423,6 +535,30 @@ export function AgentWorkspace({
             rows={4}
             onChange={(e) => onDraftChange(e.target.value)}
             onKeyDown={(e) => {
+              // Mention menu keyboard: ↑↓ select, Tab/Enter commit, Esc dismiss
+              if (pickKind && pickOptions.length > 0) {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault()
+                  setPickIndex((i) => (i + 1) % pickOptions.length)
+                  return
+                }
+                if (e.key === 'ArrowUp') {
+                  e.preventDefault()
+                  setPickIndex((i) => (i - 1 + pickOptions.length) % pickOptions.length)
+                  return
+                }
+                if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+                  e.preventDefault()
+                  commitPick()
+                  return
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault()
+                  setPickKind(null)
+                  setPickFilter('')
+                  return
+                }
+              }
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault()
                 void doSend()
@@ -456,24 +592,15 @@ export function AgentWorkspace({
                 )}
               </div>
 
-              <div className="mode-toggle" role="group" aria-label="访问模式">
-                <button
-                  type="button"
-                  className={`mode-btn${accessMode === 'approve' ? ' active' : ''}`}
-                  title="危险操作需确认；切换后下一动作生效"
-                  onClick={() => void onAccessChange('approve')}
-                >
-                  审批模式
-                </button>
-                <button
-                  type="button"
-                  className={`mode-btn${accessMode === 'full' ? ' active' : ''}`}
-                  title="跳过权限确认；切换后下一动作生效"
-                  onClick={() => void onAccessChange('full')}
-                >
-                  完全访问
-                </button>
-              </div>
+              <select
+                className="footer-select"
+                value={accessMode}
+                onChange={(e) => void onAccessChange(e.target.value as AccessMode)}
+                title="访问模式（下一动作生效）"
+              >
+                <option value="approve">审批模式</option>
+                <option value="full">完全访问</option>
+              </select>
             </div>
 
             <div className="composer-footer-right">
@@ -482,16 +609,10 @@ export function AgentWorkspace({
                 className="footer-select"
                 value={activeModel?.id ?? ''}
                 onChange={(e) => {
-                  const v = e.target.value
-                  if (v === '__add__') {
-                    onOpenSettings()
-                    return
-                  }
-                  void onModelChange(v)
+                  void onModelChange(e.target.value)
                 }}
                 title="切换对话模型（下一动作生效）"
               >
-                <option value="__add__">添加模型</option>
                 {(settings?.presets ?? []).map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.label || p.model}
@@ -563,6 +684,18 @@ function ToolCard({ message }: { message: ChatMessage }): JSX.Element {
   const resultText = message.toolResult || ''
   const inputText = message.toolInput || message.text || ''
   const name = message.toolName || '工具'
+  // Prefer description from input JSON; fall back to first line of summary.
+  const summary = (() => {
+    try {
+      const parsed = JSON.parse(inputText) as { description?: string; command?: string; file_path?: string }
+      if (parsed.description) return parsed.description
+      if (parsed.command) return parsed.command.split('\n')[0].slice(0, 120)
+      if (parsed.file_path) return parsed.file_path
+    } catch {
+      /* raw summary */
+    }
+    return (message.text || inputText.split('\n')[0] || '').slice(0, 120)
+  })()
 
   return (
     <div className={`msg msg-tool tool-${status}`} data-open={open ? '1' : '0'}>
@@ -578,7 +711,7 @@ function ToolCard({ message }: { message: ChatMessage }): JSX.Element {
       >
         <span className={`tool-dot tool-dot-${status}`} />
         <span className="tool-name">{name}</span>
-        <span className="tool-summary">{inputText.split('\n')[0]?.slice(0, 120)}</span>
+        <span className="tool-summary">{summary}</span>
         <span className={`tool-status tool-status-${status}`}>{statusLabel}</span>
         <span className="tool-caret">{open ? '▾' : '▸'}</span>
       </button>
@@ -602,6 +735,76 @@ function ToolCard({ message }: { message: ChatMessage }): JSX.Element {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function formatToolFields(
+  inputPreview: string,
+  skipDescription = false
+): Array<{ key: string; value: string; mono?: boolean }> {
+  try {
+    const parsed = JSON.parse(inputPreview) as Record<string, unknown>
+    const out: Array<{ key: string; value: string; mono?: boolean }> = []
+    // Preferred display order for common Claude Code tool inputs.
+    const order = [
+      'description',
+      'command',
+      'file_path',
+      'path',
+      'notebook_path',
+      'pattern',
+      'url',
+      'query',
+      'prompt',
+      'new_string',
+      'old_string'
+    ]
+    const seen = new Set<string>()
+    const push = (k: string, v: unknown): void => {
+      if (v == null || v === '') return
+      if (skipDescription && k === 'description') {
+        seen.add(k)
+        return
+      }
+      const s = typeof v === 'string' ? v : JSON.stringify(v, null, 2)
+      out.push({
+        key: k,
+        value: s.length > 2000 ? s.slice(0, 2000) + '…' : s,
+        mono: k !== 'description'
+      })
+      seen.add(k)
+    }
+    for (const k of order) push(k, parsed[k])
+    for (const [k, v] of Object.entries(parsed)) {
+      if (!seen.has(k) && !(skipDescription && k === 'description')) push(k, v)
+    }
+    return out
+  } catch {
+    return [{ key: 'input', value: inputPreview, mono: true }]
+  }
+}
+
+function ToolInputView({
+  inputPreview,
+  skipDescription
+}: {
+  inputPreview: string
+  skipDescription?: boolean
+}): JSX.Element {
+  const fields = formatToolFields(inputPreview, skipDescription)
+  return (
+    <div className="tool-fields">
+      {fields.map((f) => (
+        <div key={f.key} className="tool-field">
+          <div className="tool-field-key">{f.key}</div>
+          {f.mono ? (
+            <pre className="tool-field-val mono">{f.value}</pre>
+          ) : (
+            <div className="tool-field-val">{f.value}</div>
+          )}
+        </div>
+      ))}
     </div>
   )
 }
@@ -694,9 +897,7 @@ function PermissionDialog({
           {payload.description && <div className="perm-desc">{payload.description}</div>}
           {isAsk ? (
             <div className="ask-questions">
-              {askQuestions.length === 0 && (
-                <pre className="msg-code">{payload.inputPreview}</pre>
-              )}
+              {askQuestions.length === 0 && <ToolInputView inputPreview={payload.inputPreview} />}
               {askQuestions.map((q, qi) => (
                 <div key={qi} className="ask-q">
                   <div className="ask-q-title">
@@ -761,7 +962,7 @@ function PermissionDialog({
                   </div>
                 )}
               </div>
-              <pre className="msg-code">{payload.inputPreview}</pre>
+              <ToolInputView inputPreview={payload.inputPreview} skipDescription={!!payload.description} />
               <label className="field">
                 <span>拒绝原因（可选）</span>
                 <input value={reason} onChange={(e) => setReason(e.target.value)} />

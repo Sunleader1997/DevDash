@@ -30,6 +30,12 @@ asar: true
 # asarUnpack:
 #   - plugins/**
 
+# Preinstalled agent skills (compose-next / devdash-plugin-dev / playwright).
+# Must use extraResources so SKILL.md survives the files `!*.md` exclude.
+extraResources:
+  - from: bundled-skills
+    to: skills
+
 win:
   icon: assets/icons/icon.ico
   target:

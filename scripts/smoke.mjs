@@ -81,4 +81,12 @@ const ui = path.join(pluginsDir, 'git-manager', 'dist', 'ui.js')
 const uiOk = await fs.access(ui).then(() => true).catch(() => false)
 console.log('plugin ui bundle:', uiOk ? 'OK' : 'MISSING')
 if (!uiOk) process.exit(1)
+
+const bundledRoot = path.join(root, 'bundled-skills')
+for (const id of ['compose-next', 'devdash-plugin-dev', 'playwright']) {
+  const skillMd = path.join(bundledRoot, id, 'SKILL.md')
+  const ok = await fs.access(skillMd).then(() => true).catch(() => false)
+  console.log(`bundled skill ${id}:`, ok ? 'OK' : 'MISSING')
+  if (!ok) process.exit(1)
+}
 console.log('SMOKE PASS')

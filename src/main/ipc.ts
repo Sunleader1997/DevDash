@@ -39,7 +39,15 @@ export function registerPluginProtocol(): void {
         return new Response('forbidden', { status: 403 })
       }
       await fs.access(target)
-      return net.fetch(pathToFileURL(target).toString())
+      const response = await net.fetch(pathToFileURL(target).toString())
+      // Force re-fetch after plugin UI hot reload (cache-busting ?t= also used).
+      const headers = new Headers(response.headers)
+      headers.set('Cache-Control', 'no-store')
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers
+      })
     } catch (error) {
       return new Response(`error: ${(error as Error).message}`, { status: 500 })
     }

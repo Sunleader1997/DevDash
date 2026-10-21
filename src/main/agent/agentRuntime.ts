@@ -28,6 +28,11 @@ const SYSTEM_APPEND = `
 - plugins/*/dist 不进 git；改完插件源码后建议 npm run build:plugins。
 - 完整验证：npm run typecheck → npm run build:plugins → npx electron-vite build → node scripts/smoke.mjs。
 
+UI 验收工具（mcp__devdash__*，进程内 MCP）：
+- 改完插件源码并 npm run build:plugins 后，调用 mcp__devdash__reload_plugin_ui 在当前应用热重载插件 UI（新建插件/新 IPC 仍需重启）。
+- 用 mcp__devdash__dom_snapshot 看结构，用 mcp__devdash__screenshot 看视觉效果。
+- mcp__devdash__cdp_info 查看 CDP；CDP 在设置里开关，改完需重启，可用外部 Playwright connectOverCDP 操作真实 DOM。
+
 插件开发模板要点：
 - 位置 plugins/<name>/，package.json 含 devdash: { id, title, icon, ui, main, order, ipc[] }
 - vite 构建 ui.js / main.js；react alias 到宿主 shim（精确正则 /^react$/）。
@@ -247,7 +252,12 @@ function extractToolResults(
 }
 
 function summarizeToolInput(name: string, input: Record<string, unknown>): string {
-  const prefer = ['command', 'file_path', 'path', 'pattern', 'url', 'query', 'notebook_path']
+  // Prefer human-facing description (Claude Code tool bridge puts it on the input).
+  const desc = input.description
+  if (typeof desc === 'string' && desc.trim()) {
+    return desc.trim().slice(0, 160)
+  }
+  const prefer = ['command', 'file_path', 'path', 'pattern', 'url', 'query', 'notebook_path', 'prompt']
   for (const k of prefer) {
     const v = input[k]
     if (typeof v === 'string' && v) return v.length > 120 ? v.slice(0, 120) + '…' : v
@@ -611,6 +621,7 @@ async function startSession(
   })()
 
   const { query } = await import('@anthropic-ai/claude-agent-sdk')
+  const { createDevDashMcpServer } = await import('./devTools')
 
   const canUseTool: CanUseTool = async (toolName, input, options): Promise<PermissionResult> => {
     const sess = active.get(taskId)
@@ -673,10 +684,17 @@ async function startSession(
       skills: 'all',
       includePartialMessages: true,
       abortController: abort,
+      // In-app UI acceptance tools (screenshot / snapshot / reload / cdp_info).
+      mcpServers: {
+        devdash: createDevDashMcpServer()
+      },
+      allowedTools: ['mcp__devdash__*'],
       // Always attach canUseTool so mid-session setPermissionMode('default') keeps prompts.
       canUseTool,
       permissionMode: fullAccess ? 'bypassPermissions' : 'default',
-      allowDangerouslySkipPermissions: fullAccess,
+      // Must be true even in approve mode — SDK refuses setPermissionMode('bypassPermissions')
+      // later unless the query was created with allowDangerouslySkipPermissions.
+      allowDangerouslySkipPermissions: true,
       permissionPrompts: 'host',
       title: task?.title || 'DevDash 任务',
       systemPrompt: {
@@ -764,11 +782,15 @@ export async function sendMessage(params: {
       session = await startSession(taskId, preset.id, desiredMode)
     } else {
       await session.query.setModel(preset.model)
-      if (session.accessMode !== desiredMode) {
+      session.accessMode = desiredMode
+      try {
         await session.query.setPermissionMode(
           desiredMode === 'full' ? 'bypassPermissions' : 'default'
         )
-        session.accessMode = desiredMode
+      } catch (err) {
+        // Full access is still enforced in canUseTool; don't block the send.
+        const msg = err instanceof Error ? err.message : String(err)
+        console.warn('[agent] setPermissionMode failed (canUseTool fallback active):', msg)
       }
     }
     session.push(makeUserMessage(body, randomUUID()))
@@ -788,12 +810,21 @@ export async function switchAccessMode(
   await sessionStore.updateTask(taskId, { accessMode })
   const session = active.get(taskId)
   if (session) {
+    // Always flip the local gate first — canUseTool short-circuits on accessMode === 'full'.
+    // This works even if the SDK rejects the mode change below.
+    session.accessMode = accessMode
     try {
       // Takes effect on the next tool request; does not interrupt the current loop.
       await session.query.setPermissionMode(accessMode === 'full' ? 'bypassPermissions' : 'default')
-      session.accessMode = accessMode
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+      const msg = err instanceof Error ? err.message : String(err)
+      // bypassPermissions can still be refused by CLI policy / sandbox; the
+      // canUseTool path already grants full access, so surface a soft warning.
+      if (accessMode === 'full') {
+        console.warn('[agent] setPermissionMode(bypass) failed, using canUseTool allow:', msg)
+      } else {
+        return { ok: false, error: msg }
+      }
     }
   }
   // Do not claim the task is running — echo the real status with the mode change.

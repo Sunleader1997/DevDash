@@ -28,7 +28,8 @@ function defaultPreset(): ModelPreset {
 
 export const DEFAULT_SETTINGS: AgentSettings = {
   presets: [defaultPreset()],
-  activePresetId: 'anthropic-default'
+  activePresetId: 'anthropic-default',
+  uiDev: { enableCdp: false, cdpPort: 9222 }
 }
 
 function settingsPath(): string {
@@ -62,10 +63,18 @@ export async function loadSettings(): Promise<AgentSettings> {
       parsed.activePresetId && presets.some((p) => p.id === parsed.activePresetId)
         ? parsed.activePresetId
         : presets[0].id
-    return { presets, activePresetId }
+    const uiDev = normalizeUiDev(parsed.uiDev)
+    return { presets, activePresetId, uiDev }
   } catch {
     return { ...DEFAULT_SETTINGS, presets: [defaultPreset()] }
   }
+}
+
+function normalizeUiDev(raw: Partial<AgentSettings['uiDev']>): AgentSettings['uiDev'] {
+  const enableCdp = raw?.enableCdp === true
+  const portNum = Number(raw?.cdpPort)
+  const cdpPort = Number.isInteger(portNum) && portNum >= 1024 && portNum <= 65535 ? portNum : 9222
+  return { enableCdp, cdpPort }
 }
 
 export async function saveSettings(settings: AgentSettings): Promise<void> {
@@ -78,7 +87,8 @@ export async function saveSettings(settings: AgentSettings): Promise<void> {
       p.baseUrl
         ? { ...p, baseUrl: normalizeAnthropicBase(p.baseUrl) }
         : p
-    )
+    ),
+    uiDev: normalizeUiDev(settings.uiDev)
   }
   await fs.writeFile(file, JSON.stringify(normalized, null, 2), 'utf8')
 }

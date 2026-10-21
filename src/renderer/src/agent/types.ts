@@ -18,9 +18,17 @@ export type ModelPreset = {
   lastTest?: { ok: boolean; message: string; at: number }
 }
 
+export type UiDevSettings = {
+  /** Enable CDP remote debugging on next launch */
+  enableCdp?: boolean
+  /** CDP port, default 9222 */
+  cdpPort?: number
+}
+
 export type AgentSettings = {
   presets: ModelPreset[]
   activePresetId: string
+  uiDev?: UiDevSettings
 }
 
 export type AccessMode = 'approve' | 'full'

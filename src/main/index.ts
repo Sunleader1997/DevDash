@@ -3,9 +3,14 @@ import { join } from 'node:path'
 import { registerIpc, registerPluginProtocol } from './ipc'
 import { pluginRegistry } from './plugin/registry'
 import { setupAgent } from './agent/setup'
+import { seedBundledSkills } from './agent/skillSeed'
+import { applyCdpSwitchEarly, activateCdpInfo } from './uiDev/uiDevService'
 
 const ICONS_DIR = join(app.getAppPath(), 'assets/icons')
 const APP_ICON = join(ICONS_DIR, 'icon.png')
+
+// CDP port must be switched before ready. Persist discovery info after ready.
+const cdpBootstrap = applyCdpSwitchEarly()
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -99,6 +104,9 @@ app.whenReady().then(async () => {
   registerWindowControls()
   registerIpc()
   setupAgent()
+  await activateCdpInfo(cdpBootstrap)
+  // Ship skills with the installer; overwrite userData/skills every launch.
+  await seedBundledSkills()
   // Discover + activate plugin mains before the window so preload can allow their IPC.
   await pluginRegistry.discover()
   await pluginRegistry.loadAllMains()

@@ -35,7 +35,11 @@ export function registerAgentIpc(): void {
     }))
     const active =
       presets.find((p) => p.id === settings.activePresetId)?.id ?? presets[0].id
-    const next: AgentSettings = { presets, activePresetId: active }
+    const next: AgentSettings = {
+      presets,
+      activePresetId: active,
+      uiDev: settings.uiDev
+    }
     await saveSettings(next)
     return next
   })

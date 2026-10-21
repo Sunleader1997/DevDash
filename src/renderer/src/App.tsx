@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, ComponentType, Suspense } from 'react'
+import { useCallback, useEffect, useRef, useState, ComponentType, Suspense } from 'react'
 import type { DevDashPluginMeta } from './hostApi'
 import { PluginSidebar, type TaskListItem } from './shell/PluginSidebar'
 import { ErrorBoundary } from './shell/ErrorBoundary'
@@ -26,7 +26,10 @@ export default function App(): JSX.Element {
   const [loaded, setLoaded] = useState<Record<string, LoadedPlugin>>({})
   const [error, setError] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsFocus, setSettingsFocus] = useState<'models' | 'uiDev'>('models')
   const [agentSettings, setAgentSettings] = useState<AgentSettings | null>(null)
+  /** Bumped on hot-reload so in-flight imports from a previous gen are discarded. */
+  const reloadGen = useRef(0)
 
   const refreshTasks = useCallback(() => {
     listTasks()
@@ -82,9 +85,10 @@ export default function App(): JSX.Element {
     const meta = plugins.find((p) => p.id === activeId)
     if (!meta || loaded[activeId]) return
     let cancelled = false
-    import(/* @vite-ignore */ meta.uiUrl)
+    const gen = reloadGen.current
+    import(/* @vite-ignore */ `${meta.uiUrl}?t=${Date.now()}`)
       .then((mod: { default?: { App: ComponentType }; App?: ComponentType }) => {
-        if (cancelled) return
+        if (cancelled || gen !== reloadGen.current) return
         const pluginApp = mod.default?.App ?? mod.App
         if (!pluginApp) {
           setError(`插件 ${meta.id} 未导出 App 组件`)
@@ -95,11 +99,41 @@ export default function App(): JSX.Element {
           [activeId]: { meta, App: pluginApp as ComponentType }
         }))
       })
-      .catch((e: Error) => setError(`加载插件失败：${e.message}`))
+      .catch((e: Error) => {
+        if (cancelled || gen !== reloadGen.current) return
+        setError(`加载插件失败：${e.message}`)
+      })
     return () => {
       cancelled = true
     }
   }, [view, plugins, loaded])
+
+  // Hot-reload plugin UI modules (agent tool / manual) without restarting Electron.
+  useEffect(() => {
+    const onReload = (e: Event) => {
+      const raw = (e as CustomEvent<{ pluginId?: string | null }>).detail?.pluginId
+      const targetId = typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null
+      reloadGen.current += 1
+      setLoaded((prev) => {
+        // Always return a new object so the lazy-import effect re-runs even when
+        // the module was still importing (key not yet present).
+        if (!targetId) return {}
+        const next = { ...prev }
+        delete next[targetId]
+        return next
+      })
+      setError(null)
+      // Re-discover list so new/renamed plugins show up (UI-only; IPC still needs restart).
+      window.devdash
+        .invoke('plugin:list')
+        .then((raw) => setPlugins(raw as DiscoveredPlugin[]))
+        .catch(() => {})
+    }
+    window.addEventListener('devdash:reload-plugin-ui', onReload as EventListener)
+    return () => {
+      window.removeEventListener('devdash:reload-plugin-ui', onReload as EventListener)
+    }
+  }, [])
 
   const onNewTask = (): void => {
     void createTask('新任务')
@@ -170,6 +204,10 @@ export default function App(): JSX.Element {
           onSelectTask={(id) => setView({ kind: 'agent', taskId: id })}
           onNewTask={onNewTask}
           onDeleteTask={onDeleteTask}
+          onOpenSettings={() => {
+            setSettingsFocus('uiDev')
+            setSettingsOpen(true)
+          }}
         />
         <main className="workspace">
           <div className="workspace-body">
@@ -186,7 +224,10 @@ export default function App(): JSX.Element {
                 taskId={view.taskId}
                 settings={agentSettings}
                 onSettingsChange={setAgentSettings}
-                onOpenSettings={() => setSettingsOpen(true)}
+                onOpenSettings={() => {
+                  setSettingsFocus('models')
+                  setSettingsOpen(true)
+                }}
                 onTasksChanged={refreshTasks}
               />
             ) : activePlugin ? (
@@ -208,6 +249,7 @@ export default function App(): JSX.Element {
       </div>
       <SettingsModal
         open={settingsOpen}
+        focus={settingsFocus}
         onClose={() => setSettingsOpen(false)}
         onSaved={(s) => setAgentSettings(s)}
       />

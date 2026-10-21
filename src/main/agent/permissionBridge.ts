@@ -104,6 +104,11 @@ export function classifyTool(
   }
   if (AUTO_ALLOW_TOOLS.has(toolName)) return { autoAllow: true, dangerous: false }
 
+  // In-app UI acceptance tools (SDK MCP) — read-only capture / UI module reload.
+  if (toolName.startsWith('mcp__devdash__')) {
+    return { autoAllow: true, dangerous: false }
+  }
+
   if (toolName === 'Bash') {
     const cmd = String(input.command ?? '')
     if (DANGEROUS_BASH.test(cmd)) return { autoAllow: false, dangerous: true }

@@ -34,9 +34,17 @@ export type ModelPreset = {
   }
 }
 
+export type UiDevSettings = {
+  /** Enable CDP remote debugging on next launch */
+  enableCdp?: boolean
+  /** CDP port, default 9222 */
+  cdpPort?: number
+}
+
 export type AgentSettings = {
   presets: ModelPreset[]
   activePresetId: string
+  uiDev?: UiDevSettings
 }
 
 /** 审批模式 vs 完全访问 */

@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { TaskFooter } from './TaskFooter'
 
 export type PluginListItem = {
@@ -15,6 +16,8 @@ export type TaskListItem = {
   status: 'idle' | 'running' | 'error'
 }
 
+const GITHUB_URL = 'https://github.com/Sunleader1997/DevDash'
+
 export function PluginSidebar({
   plugins,
   activeId,
@@ -23,7 +26,8 @@ export function PluginSidebar({
   onSelectPlugin,
   onSelectTask,
   onNewTask,
-  onDeleteTask
+  onDeleteTask,
+  onOpenSettings
 }: {
   plugins: PluginListItem[]
   activeId: string | null
@@ -33,7 +37,29 @@ export function PluginSidebar({
   onSelectTask: (id: string) => void
   onNewTask: () => void
   onDeleteTask: (id: string) => void
+  onOpenSettings: () => void
 }): JSX.Element {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onDown = (e: MouseEvent): void => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setMenuOpen(false)
+    }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [menuOpen])
+
   return (
     <aside className="sidebar">
       <div className="sidebar-top">
@@ -60,7 +86,13 @@ export function PluginSidebar({
                 font: 'inherit'
               }}
             >
-              {t.status === 'running' ? '● ' : ''}
+              {t.status === 'running' ? (
+                <span className="task-spinner" title="运行中" />
+              ) : t.status === 'error' ? (
+                <span className="task-dot error" title="出错" />
+              ) : (
+                <span className="task-dot idle" aria-hidden="true" />
+              )}
               {t.title}
             </button>
             <button
@@ -103,15 +135,48 @@ export function PluginSidebar({
       </nav>
 
       <div className="sidebar-footer">
-        <button
-          className="footer-brand"
-          title="打开 GitHub 仓库"
-          onClick={() => {
-            void window.devdash.invoke('shell:open-external', 'https://github.com/Sunleader1997/DevDash')
-          }}
-        >
-          DevDash
-        </button>
+        <div className="footer-brand-wrap" ref={menuRef}>
+          <button
+            className={`footer-brand${menuOpen ? ' active' : ''}`}
+            title="应用菜单"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((v) => !v)}
+          >
+            DevDash
+            <svg className="footer-brand-caret" viewBox="0 0 8 8" aria-hidden="true">
+              <path d="M2 3 L4 5 L6 3" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+            </svg>
+          </button>
+          {menuOpen && (
+            <div className="brand-menu" role="menu">
+              <button
+                type="button"
+                role="menuitem"
+                className="brand-menu-item"
+                onClick={() => {
+                  setMenuOpen(false)
+                  onOpenSettings()
+                }}
+              >
+                <span className="brand-menu-icon">⚙</span>
+                设置
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="brand-menu-item"
+                onClick={() => {
+                  setMenuOpen(false)
+                  void window.devdash.invoke('shell:open-external', GITHUB_URL)
+                }}
+              >
+                <span className="brand-menu-icon">↗</span>
+                GitHub 仓库
+              </button>
+            </div>
+          )}
+        </div>
         <TaskFooter />
       </div>
     </aside>
