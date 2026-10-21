@@ -572,6 +572,13 @@ async function consumeStream(
     broadcast({ type: 'error', taskId, message })
     broadcast({ type: 'status', taskId, status: 'error', error: message, phase: 'error' })
   } finally {
+    // Stream ended without an explicit result (cancel, crash, EOF) — make sure
+    // the task is not left stuck in `running` so the sidebar spinner stops.
+    const task = await sessionStore.getTask(taskId)
+    if (task?.status === 'running') {
+      await sessionStore.updateTask(taskId, { status: 'idle' })
+      broadcast({ type: 'status', taskId, status: 'idle', phase: 'idle' })
+    }
     active.delete(taskId)
   }
 }

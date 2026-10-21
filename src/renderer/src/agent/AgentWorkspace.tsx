@@ -234,9 +234,16 @@ export function AgentWorkspace({
         // SDK init may have published new skills/commands
         if (e.status === 'running' || e.phase === 'thinking') refreshCaps()
         onTasksChanged()
+      } else if (e.type === 'status') {
+        // Other tasks' status changes (e.g. a background task finished) must
+        // still refresh the sidebar spinner — not only the active task.
+        onTasksChanged()
       } else if (e.type === 'permission' && e.payload.taskId === taskId) {
         setPermission(e.payload)
         setPhase('waiting')
+      } else if (e.type === 'permission') {
+        // Background task waiting for permission — keep sidebar fresh
+        onTasksChanged()
       } else if (e.type === 'error' && e.taskId === taskId) {
         setStatusNote(e.message)
         setPhase('error')
