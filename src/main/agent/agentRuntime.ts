@@ -47,8 +47,12 @@ type ActiveSession = {
   streamBuffer: string
   /** tool_use_id → chat message id */
   toolIndex: Map<string, string>
+  /** Message ids of tool cards still running (for id-less result matching) */
+  runningToolMsgIds: string[]
   /** Session-scoped tool allowlist from "允许并记住本会话" */
   sessionAllowedTools: Set<string>
+  /** Context window size from preset */
+  maxContextTokens: number
 }
 
 function repoRoot(): string {
@@ -148,12 +152,13 @@ function extractToolUses(
   const out: Array<{ name: string; input: Record<string, unknown>; toolUseId?: string }> = []
   for (const block of content) {
     if (block && typeof block === 'object' && 'type' in block) {
-      const b = block as { type: string; name?: string; input?: unknown; id?: string }
+      const b = block as { type: string; name?: string; input?: unknown; id?: string; tool_use_id?: string }
       if (b.type === 'tool_use' && typeof b.name === 'string') {
         out.push({
           name: b.name,
           input: (b.input as Record<string, unknown>) ?? {},
-          toolUseId: typeof b.id === 'string' ? b.id : undefined
+          toolUseId:
+            typeof b.id === 'string' ? b.id : typeof b.tool_use_id === 'string' ? b.tool_use_id : undefined
         })
       }
     }
@@ -164,15 +169,41 @@ function extractToolUses(
 function extractToolResults(
   message: SDKMessage
 ): Array<{ toolUseId: string; text: string; isError?: boolean }> {
-  if (message.type !== 'user') return []
-  const content = (message as { message?: { content?: unknown } }).message?.content
-  if (!Array.isArray(content)) return []
+  const any = message as {
+    type?: string
+    message?: { content?: unknown }
+    tool_use_result?: unknown
+    toolUseResult?: unknown
+  }
   const out: Array<{ toolUseId: string; text: string; isError?: boolean }> = []
-  for (const block of content) {
-    if (block && typeof block === 'object' && 'type' in block) {
+
+  const pushResult = (
+    toolUseId: string,
+    raw: unknown,
+    isError?: boolean
+  ): void => {
+    let text = ''
+    if (typeof raw === 'string') text = raw
+    else if (raw != null) {
+      try {
+        text = JSON.stringify(raw, null, 2)
+      } catch {
+        text = String(raw)
+      }
+    }
+    if (!text) text = '（无输出）'
+    out.push({ toolUseId, text: text.slice(0, 8000), isError })
+  }
+
+  // 1) content blocks with type tool_result
+  const content = any.message?.content
+  if (Array.isArray(content)) {
+    for (const block of content) {
+      if (!block || typeof block !== 'object' || !('type' in block)) continue
       const b = block as {
         type: string
         tool_use_id?: string
+        toolUseId?: string
         content?: unknown
         is_error?: boolean
       }
@@ -182,22 +213,36 @@ function extractToolResults(
         else if (Array.isArray(b.content)) {
           text = b.content
             .map((c) => {
-              if (c && typeof c === 'object' && 'type' in c && (c as { type: string }).type === 'text') {
-                return (c as { text?: string }).text ?? ''
+              if (c && typeof c === 'object' && 'type' in c) {
+                const t = c as { type: string; text?: string; content?: string }
+                if (t.type === 'text') return t.text ?? ''
+                if (typeof t.content === 'string') return t.content
               }
               return ''
             })
             .filter(Boolean)
             .join('\n')
+        } else if (b.content != null) {
+          try {
+            text = JSON.stringify(b.content, null, 2)
+          } catch {
+            text = String(b.content)
+          }
         }
-        out.push({
-          toolUseId: b.tool_use_id ?? '',
-          text: text.slice(0, 4000),
-          isError: b.is_error === true
-        })
+        pushResult(b.tool_use_id ?? b.toolUseId ?? '', text, b.is_error === true)
       }
     }
   }
+
+  // 2) SDK structured tool_use_result sibling (when content blocks missing/empty)
+  if (out.length === 0) {
+    const structured = any.tool_use_result ?? any.toolUseResult
+    if (structured !== undefined && structured !== null) {
+      // No tool_use_id on this field — leave id empty; caller matches by running tools.
+      pushResult('', structured, false)
+    }
+  }
+
   return out
 }
 
@@ -215,8 +260,42 @@ function summarizeToolInput(name: string, input: Record<string, unknown>): strin
   }
 }
 
-async function emitMessage(msg: ChatMessage): Promise<void> {
+function extractUsage(message: SDKMessage): { used: number; max?: number } | null {
+  const any = message as {
+    usage?: {
+      input_tokens?: number
+      cache_creation_input_tokens?: number
+      cache_read_input_tokens?: number
+    }
+    message?: {
+      usage?: {
+        input_tokens?: number
+        cache_creation_input_tokens?: number
+        cache_read_input_tokens?: number
+      }
+    }
+    context_usage?: { total_tokens?: number; raw_max_tokens?: number }
+  }
+  const u = any.usage ?? any.message?.usage
+  if (u && typeof u.input_tokens === 'number') {
+    const used =
+      (u.input_tokens ?? 0) +
+      (u.cache_creation_input_tokens ?? 0) +
+      (u.cache_read_input_tokens ?? 0)
+    return { used, max: any.context_usage?.raw_max_tokens }
+  }
+  if (any.context_usage?.total_tokens != null) {
+    return {
+      used: any.context_usage.total_tokens,
+      max: any.context_usage.raw_max_tokens
+    }
+  }
+  return null
+}
+
+function emitMessage(msg: ChatMessage): Promise<void> {
   broadcast({ type: 'message', taskId: msg.taskId, message: msg })
+  return Promise.resolve()
 }
 
 function buildPluginContext(pluginRefs: string[]): string {
@@ -247,9 +326,20 @@ async function consumeStream(
   q: Query,
   session: ActiveSession
 ): Promise<void> {
+  const maxTokens = session.maxContextTokens || 1_000_000
   try {
     for await (const raw of q) {
       const message = raw as SDKMessage
+
+      const usage = extractUsage(message)
+      if (usage) {
+        broadcast({
+          type: 'usage',
+          taskId,
+          usedTokens: usage.used,
+          maxTokens: usage.max ?? maxTokens
+        })
+      }
 
       if (message.type === 'system' && (message as { subtype?: string }).subtype === 'init') {
         const sid = (message as { session_id?: string }).session_id
@@ -354,18 +444,26 @@ async function consumeStream(
         }
 
         for (const t of tools) {
+          const summary = summarizeToolInput(t.name, t.input)
+          let fullInput = summary
+          try {
+            fullInput = JSON.stringify(t.input, null, 2).slice(0, 4000)
+          } catch {
+            /* keep summary */
+          }
           const toolMsg: ChatMessage = {
             id: randomUUID(),
             taskId,
             role: 'tool',
-            text: summarizeToolInput(t.name, t.input),
+            text: summary,
             toolName: t.name,
-            toolInput: summarizeToolInput(t.name, t.input),
+            toolInput: fullInput,
             toolStatus: 'running',
             toolUseId: t.toolUseId,
             createdAt: Date.now()
           }
           if (t.toolUseId) session.toolIndex.set(t.toolUseId, toolMsg.id)
+          session.runningToolMsgIds.push(toolMsg.id)
           await sessionStore.appendMessage(taskId, toolMsg)
           await emitMessage(toolMsg)
           setPhase(taskId, 'tool')
@@ -373,13 +471,18 @@ async function consumeStream(
         continue
       }
 
-      // tool_result arrives as a user-role message
+      // tool_result arrives as a user-role message (or tool_use_result sibling)
       const results = extractToolResults(message)
       if (results.length) {
         for (const r of results) {
-          const msgId = r.toolUseId ? session.toolIndex.get(r.toolUseId) : undefined
           const status: ToolStatus = r.isError ? 'error' : 'done'
+          let msgId = r.toolUseId ? session.toolIndex.get(r.toolUseId) : undefined
+          if (msgId && r.toolUseId) session.toolIndex.delete(r.toolUseId)
+          if (!msgId && session.runningToolMsgIds.length > 0) {
+            msgId = session.runningToolMsgIds.shift()
+          }
           if (msgId) {
+            session.runningToolMsgIds = session.runningToolMsgIds.filter((x) => x !== msgId)
             await sessionStore.replaceMessage(taskId, msgId, {
               toolResult: r.text,
               toolStatus: status
@@ -392,7 +495,7 @@ async function consumeStream(
               toolStatus: status
             })
           } else {
-            // Orphan tool_result (map miss / no id) — still surface it.
+            // Orphan tool_result — still surface it as its own row.
             const orphan: ChatMessage = {
               id: randomUUID(),
               taskId,
@@ -597,7 +700,9 @@ async function startSession(
     accessMode: access,
     streamBuffer: '',
     toolIndex: new Map(),
-    sessionAllowedTools: new Set()
+    runningToolMsgIds: [],
+    sessionAllowedTools: new Set(),
+    maxContextTokens: preset.contextInputTokens ?? 1_000_000
   }
   active.set(taskId, session)
   void consumeStream(taskId, q, session)

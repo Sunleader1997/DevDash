@@ -1,3 +1,5 @@
+import { TaskFooter } from './TaskFooter'
+
 export type PluginListItem = {
   id: string
   title: string
@@ -21,8 +23,7 @@ export function PluginSidebar({
   onSelectPlugin,
   onSelectTask,
   onNewTask,
-  onDeleteTask,
-  onOpenSettings
+  onDeleteTask
 }: {
   plugins: PluginListItem[]
   activeId: string | null
@@ -32,7 +33,6 @@ export function PluginSidebar({
   onSelectTask: (id: string) => void
   onNewTask: () => void
   onDeleteTask: (id: string) => void
-  onOpenSettings: () => void
 }): JSX.Element {
   return (
     <aside className="sidebar">
@@ -103,10 +103,8 @@ export function PluginSidebar({
       </nav>
 
       <div className="sidebar-footer">
-        <button className="sidebar-settings-btn" onClick={onOpenSettings} title="模型设置">
-          <span aria-hidden>⚙</span>
-          <span>设置</span>
-        </button>
+        <span className="footer-hint">DevDash</span>
+        <TaskFooter />
       </div>
     </aside>
   )

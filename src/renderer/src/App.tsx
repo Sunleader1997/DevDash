@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState, ComponentType, Suspense } from 'react'
 import type { DevDashPluginMeta } from './hostApi'
 import { PluginSidebar, type TaskListItem } from './shell/PluginSidebar'
-import { TaskFooter } from './shell/TaskFooter'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import { AgentWorkspace } from './agent/AgentWorkspace'
 import { SettingsModal } from './agent/SettingsModal'
@@ -171,7 +170,6 @@ export default function App(): JSX.Element {
           onSelectTask={(id) => setView({ kind: 'agent', taskId: id })}
           onNewTask={onNewTask}
           onDeleteTask={onDeleteTask}
-          onOpenSettings={() => setSettingsOpen(true)}
         />
         <main className="workspace">
           <div className="workspace-body">
@@ -206,10 +204,6 @@ export default function App(): JSX.Element {
               </div>
             )}
           </div>
-          <footer className="app-footer">
-            <span className="footer-hint">DevDash</span>
-            <TaskFooter />
-          </footer>
         </main>
       </div>
       <SettingsModal

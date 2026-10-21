@@ -21,6 +21,8 @@ import {
   switchAccessMode,
   switchModel
 } from './agentApi'
+import { Markdown } from './Markdown'
+import { ContextRing } from './ContextRing'
 
 type PluginLite = { id: string; title: string; packageName: string }
 type PickKind = 'plugin' | 'skill' | null
@@ -63,6 +65,7 @@ export function AgentWorkspace({
   const [statusNote, setStatusNote] = useState<string | null>(null)
   const [accessMode, setAccessMode] = useState<AccessMode>('approve')
   const [plusOpen, setPlusOpen] = useState(false)
+  const [ctxUsed, setCtxUsed] = useState(0)
   const listRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const plusRef = useRef<HTMLDivElement | null>(null)
@@ -166,6 +169,8 @@ export function AgentWorkspace({
         setStatusNote(e.message)
         setPhase('error')
         setSending(false)
+      } else if (e.type === 'usage' && e.taskId === taskId) {
+        setCtxUsed(e.usedTokens)
       }
     },
     [taskId, onTasksChanged, refreshCaps]
@@ -318,6 +323,7 @@ export function AgentWorkspace({
 
   const running = task?.status === 'running' || sending
   const statusText = PHASE_LABEL[phase]
+  const ctxTotal = activeModel?.contextInputTokens ?? 1_000_000
 
   return (
     <div className="agent-workspace">
@@ -408,98 +414,101 @@ export function AgentWorkspace({
           </div>
         )}
 
-        <textarea
-          ref={inputRef}
-          className="composer-input"
-          placeholder="描述要开发或修改的插件…（@ 插件 · / skill · + 编排）"
-          value={draft}
-          rows={4}
-          onChange={(e) => onDraftChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault()
-              void doSend()
-            }
-          }}
-        />
+        <div className="composer-box">
+          <textarea
+            ref={inputRef}
+            className="composer-input"
+            placeholder="描述要开发或修改的插件…（@ 插件 · / skill · + 编排）"
+            value={draft}
+            rows={4}
+            onChange={(e) => onDraftChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault()
+                void doSend()
+              }
+            }}
+          />
 
-        <div className="composer-footer">
-          <div className="composer-footer-left">
-            <div className="plus-menu-wrap" ref={plusRef}>
-              <button
-                type="button"
-                className={`footer-chip plus-btn${plusOpen ? ' active' : ''}`}
-                title="编排模式（/compose-next）"
-                onClick={() => setPlusOpen((v) => !v)}
-              >
-                +
-              </button>
-              {plusOpen && (
-                <div className="plus-menu">
-                  <div className="plus-section-title">编排模式</div>
-                  <button
-                    type="button"
-                    className={`plus-item${skillRefs.includes('compose-next') ? ' active' : ''}`}
-                    onMouseDown={applyOrchestration}
-                  >
-                    <span className="plus-item-title">/compose-next</span>
-                    <span className="plus-item-desc">Compose Next 编排工作流 skill</span>
-                  </button>
-                </div>
-              )}
+          <div className="composer-footer">
+            <div className="composer-footer-left">
+              <div className="plus-menu-wrap" ref={plusRef}>
+                <button
+                  type="button"
+                  className={`footer-chip plus-btn${plusOpen ? ' active' : ''}`}
+                  title="编排模式（/compose-next）"
+                  onClick={() => setPlusOpen((v) => !v)}
+                >
+                  +
+                </button>
+                {plusOpen && (
+                  <div className="plus-menu">
+                    <div className="plus-section-title">编排模式</div>
+                    <button
+                      type="button"
+                      className={`plus-item${skillRefs.includes('compose-next') ? ' active' : ''}`}
+                      onMouseDown={applyOrchestration}
+                    >
+                      <span className="plus-item-title">/compose-next</span>
+                      <span className="plus-item-desc">Compose Next 编排工作流 skill</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="mode-toggle" role="group" aria-label="访问模式">
+                <button
+                  type="button"
+                  className={`mode-btn${accessMode === 'approve' ? ' active' : ''}`}
+                  title="危险操作需确认；切换后下一动作生效"
+                  onClick={() => void onAccessChange('approve')}
+                >
+                  审批模式
+                </button>
+                <button
+                  type="button"
+                  className={`mode-btn${accessMode === 'full' ? ' active' : ''}`}
+                  title="跳过权限确认；切换后下一动作生效"
+                  onClick={() => void onAccessChange('full')}
+                >
+                  完全访问
+                </button>
+              </div>
             </div>
 
-            <div className="mode-toggle" role="group" aria-label="访问模式">
-              <button
-                type="button"
-                className={`mode-btn${accessMode === 'approve' ? ' active' : ''}`}
-                title="危险操作需确认；切换后下一动作生效"
-                onClick={() => void onAccessChange('approve')}
+            <div className="composer-footer-right">
+              <ContextRing used={ctxUsed} total={ctxTotal} />
+              <select
+                className="footer-select"
+                value={activeModel?.id ?? ''}
+                onChange={(e) => {
+                  const v = e.target.value
+                  if (v === '__add__') {
+                    onOpenSettings()
+                    return
+                  }
+                  void onModelChange(v)
+                }}
+                title="切换对话模型（下一动作生效）"
               >
-                审批模式
-              </button>
+                <option value="__add__">添加模型</option>
+                {(settings?.presets ?? []).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label || p.model}
+                  </option>
+                ))}
+                {(!settings || settings.presets.length === 0) && (
+                  <option value="">未配置模型</option>
+                )}
+              </select>
               <button
-                type="button"
-                className={`mode-btn${accessMode === 'full' ? ' active' : ''}`}
-                title="跳过权限确认；切换后下一动作生效"
-                onClick={() => void onAccessChange('full')}
+                className="btn-primary composer-send"
+                disabled={!draft.trim() || sending}
+                onClick={() => void doSend()}
               >
-                完全访问
+                {sending ? '…' : '发送'}
               </button>
             </div>
-          </div>
-
-          <div className="composer-footer-right">
-            <select
-              className="footer-select"
-              value={activeModel?.id ?? ''}
-              onChange={(e) => {
-                const v = e.target.value
-                if (v === '__add__') {
-                  onOpenSettings()
-                  return
-                }
-                void onModelChange(v)
-              }}
-              title="切换对话模型（下一动作生效）"
-            >
-              <option value="__add__">添加模型</option>
-              {(settings?.presets ?? []).map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label || p.model}
-                </option>
-              ))}
-              {(!settings || settings.presets.length === 0) && (
-                <option value="">未配置模型</option>
-              )}
-            </select>
-            <button
-              className="btn-primary composer-send"
-              disabled={!draft.trim() || sending}
-              onClick={() => void doSend()}
-            >
-              {sending ? '…' : '发送'}
-            </button>
           </div>
         </div>
       </div>
@@ -525,7 +534,7 @@ function MessageRow({ message }: { message: ChatMessage }): JSX.Element {
   if (message.role === 'system') {
     return (
       <div className={`msg msg-system${message.error ? ' error' : ''}`}>
-        <div className="msg-text">{message.text}</div>
+        <Markdown text={message.text} />
       </div>
     )
   }
@@ -533,7 +542,7 @@ function MessageRow({ message }: { message: ChatMessage }): JSX.Element {
   return (
     <div className={`msg ${isUser ? 'msg-user' : 'msg-assistant'}`}>
       <div className="msg-text">
-        {message.text}
+        <Markdown text={message.text} />
         {message.pluginRefs && message.pluginRefs.length > 0 && (
           <span className="msg-refs">{message.pluginRefs.map((r) => `@${r}`).join(' ')}</span>
         )}
@@ -547,20 +556,52 @@ function MessageRow({ message }: { message: ChatMessage }): JSX.Element {
 }
 
 function ToolCard({ message }: { message: ChatMessage }): JSX.Element {
-  const [open, setOpen] = useState(false)
   const status = message.toolStatus ?? 'running'
+  // Quiet by default — expand on click only (Apple: secondary UI must not compete).
+  const [open, setOpen] = useState(false)
   const statusLabel = status === 'running' ? '运行中' : status === 'error' ? '失败' : '完成'
-  const body = message.toolResult || message.text
+  const resultText = message.toolResult || ''
+  const inputText = message.toolInput || message.text || ''
+  const name = message.toolName || '工具'
+
   return (
-    <div className={`msg msg-tool tool-${status}`}>
-      <button type="button" className="tool-header" onClick={() => setOpen((v) => !v)}>
+    <div className={`msg msg-tool tool-${status}`} data-open={open ? '1' : '0'}>
+      <button
+        type="button"
+        className="tool-header"
+        aria-expanded={open}
+        onClick={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          setOpen((v) => !v)
+        }}
+      >
         <span className={`tool-dot tool-dot-${status}`} />
-        <span className="tool-name">{message.toolName || '工具'}</span>
-        <span className="tool-summary">{message.toolInput || message.text}</span>
-        <span className="tool-status">{statusLabel}</span>
+        <span className="tool-name">{name}</span>
+        <span className="tool-summary">{inputText.split('\n')[0]?.slice(0, 120)}</span>
+        <span className={`tool-status tool-status-${status}`}>{statusLabel}</span>
         <span className="tool-caret">{open ? '▾' : '▸'}</span>
       </button>
-      {open && body && <pre className="tool-result">{body}</pre>}
+      {open && (
+        <div className="tool-body">
+          {inputText && (
+            <div className="tool-line">
+              <span className="tool-line-label">参数</span>
+              <pre className="tool-result">{inputText}</pre>
+            </div>
+          )}
+          <div className="tool-line">
+            <span className="tool-line-label">结果</span>
+            {resultText ? (
+              <pre className="tool-result">{resultText}</pre>
+            ) : (
+              <div className="tool-line-empty">
+                {status === 'running' ? '执行中…' : '暂无输出'}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

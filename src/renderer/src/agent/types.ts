@@ -110,6 +110,12 @@ export type AgentEvent =
     }
   | { type: 'permission'; payload: PermissionRequestPayload }
   | { type: 'error'; taskId: string; message: string }
+  | {
+      type: 'usage'
+      taskId: string
+      usedTokens: number
+      maxTokens: number
+    }
 
 export type AgentSendRequest = {
   taskId: string

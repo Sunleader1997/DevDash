@@ -11,3 +11,4 @@ electron-out.txt
 package-lock.json
 plugins/git-manager/dist/
 release/
+.devDash/
