@@ -13,11 +13,12 @@ import type {
   ModelPreset,
   ToolStatus
 } from './types'
-import { buildEnvForPreset, loadSettings, pickPreset } from './modelConfig'
+import { buildEnvForPreset, loadSettings, pickPreset, settingsEnvForPreset } from './modelConfig'
 import * as sessionStore from './sessionStore'
 import { classifyTool, denyAllPending, requestPermission, setAllowToolForSession } from './permissionBridge'
 import { pluginRegistry } from '../plugin/registry'
 import { buildSkillContext, listSkills } from './skills'
+import { repoRoot } from './repoRoot'
 
 /** Prefer full Error.stack (message + frames) so the UI can show/copy the whole failure. */
 function formatError(err: unknown): string {
@@ -46,7 +47,13 @@ function resolveClaudeCliPath(): string | undefined {
   const binName = process.platform === 'win32' ? 'claude.exe' : 'claude'
   if (app.isPackaged) {
     const packed = path.join(process.resourcesPath, 'claude', binName)
-    return existsSync(packed) ? packed : undefined
+    if (!existsSync(packed)) {
+      // Leaving this undefined makes the SDK resolve from asar (a file) → spawn ENOTDIR.
+      throw new Error(
+        `找不到 Claude Code CLI：${packed}\n请重新安装 DevDash（安装包应包含 Resources/claude/${binName}）。`
+      )
+    }
+    return packed
   }
   const spec = NATIVE_CLI_SPEC[`${process.platform}-${process.arch}`]
   if (!spec) return undefined
@@ -100,14 +107,8 @@ type ActiveSession = {
   sessionAllowedTools: Set<string>
   /** Context window size from preset */
   maxContextTokens: number
-}
-
-function repoRoot(): string {
-  try {
-    return app.isReady() ? app.getAppPath() : process.cwd()
-  } catch {
-    return process.cwd()
-  }
+  /** Model string last applied to this live query */
+  model?: string
 }
 
 const active = new Map<string, ActiveSession>()
@@ -359,7 +360,13 @@ function buildPluginContext(pluginRefs: string[]): string {
         const meta = pluginRegistry.byId(id)
         const title = meta?.title ?? id
         const pkg = meta?.packageName ?? `plugins/${id}`
-        const root = meta?.rootDir ? path.relative(repoRoot(), meta.rootDir) || meta.rootDir : `plugins/${id}`
+        const root = (() => {
+          if (!meta?.rootDir) return `plugins/${id}`
+          const rel = path.relative(repoRoot(), meta.rootDir)
+          // Packaged rootDir lives under app.asar (outside userData) — show a stable hint.
+          if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return `plugins/${id}`
+          return rel
+        })()
         return [
           `- id: ${id}`,
           `  title: ${title}`,
@@ -733,6 +740,11 @@ async function startSession(
       // Force our preset model/env even when user/project settings pin another model.
       model: preset.model,
       env,
+      // Override ~/.claude/settings.json `env` (base URL / model / token) — user
+      // settings would otherwise win over options.env and hit the wrong gateway.
+      settings: {
+        env: settingsEnvForPreset(preset)
+      },
       // Inherit Claude Code ecosystem: skills / agents / hooks / mcp / plugins / commands.
       settingSources: ['user', 'project'],
       skills: 'all',
@@ -774,7 +786,8 @@ async function startSession(
     toolIndex: new Map(),
     runningToolMsgIds: [],
     sessionAllowedTools: new Set(),
-    maxContextTokens: preset.contextInputTokens ?? 1_000_000
+    maxContextTokens: preset.contextInputTokens ?? 1_000_000,
+    model: preset.model
   }
   active.set(taskId, session)
   void consumeStream(taskId, q, session)
@@ -835,7 +848,17 @@ export async function sendMessage(params: {
     if (!session) {
       session = await startSession(taskId, preset.id, desiredMode)
     } else {
-      await session.query.setModel(preset.model)
+      if (session.model !== preset.model) {
+        try {
+          await session.query.setModel(preset.model)
+          session.model = preset.model
+        } catch (err) {
+          // Wrong gateway/model combo — surface it but still push the message so
+          // the user sees the failure in-context rather than a silent drop.
+          const msg = err instanceof Error ? err.message : String(err)
+          console.warn('[agent] setModel failed:', msg)
+        }
+      }
       session.accessMode = desiredMode
       try {
         await session.query.setPermissionMode(
@@ -907,9 +930,10 @@ export async function switchModel(taskId: string, modelId: string): Promise<{ ok
 
   await sessionStore.updateTask(taskId, { modelId: preset.id })
   const session = active.get(taskId)
-  if (session) {
+  if (session && session.model !== preset.model) {
     try {
       await session.query.setModel(preset.model)
+      session.model = preset.model
     } catch (err) {
       return {
         ok: false,

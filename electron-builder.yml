@@ -46,20 +46,33 @@ extraResources:
   - from: assets/icons/icon.ico
     to: app-icon/icon.ico
   # Native Claude Code CLI for @anthropic-ai/claude-agent-sdk.
-  # Optional platform package is not collected from nested optionalDependencies;
-  # also cannot be spawned from inside asar — ship unpacked and pass
-  # pathToClaudeCodeExecutable at query time.
-  - from: node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe
-    to: claude/claude.exe
+  # Optional platform packages are not collected from nested optionalDependencies;
+  # binary cannot be spawned from inside asar. Stage the right arch via
+  # scripts/stage-claude-bin.mjs before pack (pack:win / pack:mac do this).
+  - from: build/claude-bin
+    to: claude
 
 mac:
   icon: assets/icons/icon.icns
+  category: public.app-category.developer-tools
+  # No Apple Developer ID in this environment — skip signing so the build
+  # still produces a runnable app (users right-click → Open on first launch).
+  identity: null
+  target:
+    - target: dmg
+      arch:
+        - arm64
+    - target: zip
+      arch:
+        - arm64
+  artifactName: ${name}-${version}-mac-${arch}.${ext}
+
+# dmg options are top-level (not under mac)
+dmg:
+  artifactName: ${name}-${version}-mac-${arch}.${ext}
 
 win:
   icon: assets/icons/icon.ico
-  # Also embed matching installer/uninstaller icons so NSIS never falls back.
-  installerIcon: assets/icons/icon.ico
-  uninstallerIcon: assets/icons/icon.ico
   target:
     - target: nsis
       arch:
@@ -77,3 +90,6 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: DevDash
   artifactName: ${name}-${version}-win-${arch}-setup.${ext}
+  # NSIS-only icon fields (not valid under win)
+  installerIcon: assets/icons/icon.ico
+  uninstallerIcon: assets/icons/icon.ico

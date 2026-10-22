@@ -1,4 +1,4 @@
-import { ipcMain, app } from 'electron'
+import { ipcMain } from 'electron'
 import {
   loadSettings,
   saveSettings,
@@ -10,15 +10,8 @@ import * as sessionStore from './sessionStore'
 import * as runtime from './agentRuntime'
 import { respondPermission } from './permissionBridge'
 import { listSkills } from './skills'
+import { repoRoot } from './repoRoot'
 import type { AgentSendRequest, AgentSettings, ModelPreset } from './types'
-
-function repoRoot(): string {
-  try {
-    return app.isReady() ? app.getAppPath() : process.cwd()
-  } catch {
-    return process.cwd()
-  }
-}
 
 export function registerAgentIpc(): void {
   ipcMain.handle('agent:settings:get', async () => {

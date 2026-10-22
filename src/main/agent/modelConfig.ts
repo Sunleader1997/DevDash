@@ -125,7 +125,9 @@ export function buildEnvForPreset(preset: ModelPreset): Record<string, string | 
       env.ANTHROPIC_MODEL = model
       env.ANTHROPIC_SMALL_FAST_MODEL = model
       env.ANTHROPIC_DEFAULT_SONNET_MODEL = model
+      env.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME = model
       env.ANTHROPIC_DEFAULT_OPUS_MODEL = model
+      env.ANTHROPIC_DEFAULT_OPUS_MODEL_NAME = model
       env.ANTHROPIC_DEFAULT_HAIKU_MODEL = model
     }
     return env
@@ -136,8 +138,32 @@ export function buildEnvForPreset(preset: ModelPreset): Record<string, string | 
     env.ANTHROPIC_API_KEY = apiKey
     env.ANTHROPIC_AUTH_TOKEN = apiKey
   }
-  if (model) env.ANTHROPIC_MODEL = model
+  if (model) {
+    env.ANTHROPIC_MODEL = model
+    env.ANTHROPIC_DEFAULT_SONNET_MODEL = model
+    env.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME = model
+    env.ANTHROPIC_DEFAULT_OPUS_MODEL = model
+    env.ANTHROPIC_DEFAULT_OPUS_MODEL_NAME = model
+    env.ANTHROPIC_DEFAULT_HAIKU_MODEL = model
+    env.ANTHROPIC_SMALL_FAST_MODEL = model
+  }
   return env
+}
+
+/**
+ * Overlay for `options.settings.env`.
+ *
+ * `settingSources: ['user','project']` loads `~/.claude/settings.json`, whose `env`
+ * block (base URL / model / token) would otherwise override `options.env`.
+ * `--settings` / SDK `settings` sits above user settings in Claude Code's merge
+ * order, so pinning the same keys here makes the DevDash preset win.
+ */
+export function settingsEnvForPreset(preset: ModelPreset): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(buildEnvForPreset(preset))) {
+    if (typeof v === 'string' && v) out[k] = v
+  }
+  return out
 }
 
 export function pickPreset(settings: AgentSettings, presetId?: string): ModelPreset | undefined {

@@ -1,17 +1,9 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { app } from 'electron'
 import type { SkillInfo } from './types'
 import { bundledSkillsScanDir, userDataSkillsDir } from './skillSeed'
-
-function repoRoot(): string {
-  try {
-    return app.isReady() ? app.getAppPath() : process.cwd()
-  } catch {
-    return process.cwd()
-  }
-}
+import { repoRoot } from './repoRoot'
 
 function skillDirs(): string[] {
   const root = repoRoot()
