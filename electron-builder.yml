@@ -35,6 +35,16 @@ asar: true
 extraResources:
   - from: bundled-skills
     to: skills
+  # Unpacked app icon: dock/window load from resourcesPath (not asar), and
+  # mac bundle CFBundleIconFile comes from buildResources icon.icns.
+  - from: assets/icons/icon.png
+    to: app-icon/icon.png
+  - from: assets/icons/icon-flat.png
+    to: app-icon/icon-flat.png
+  - from: assets/icons/icon.icns
+    to: app-icon/icon.icns
+  - from: assets/icons/icon.ico
+    to: app-icon/icon.ico
   # Native Claude Code CLI for @anthropic-ai/claude-agent-sdk.
   # Optional platform package is not collected from nested optionalDependencies;
   # also cannot be spawned from inside asar — ship unpacked and pass
@@ -42,8 +52,14 @@ extraResources:
   - from: node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe
     to: claude/claude.exe
 
+mac:
+  icon: assets/icons/icon.icns
+
 win:
   icon: assets/icons/icon.ico
+  # Also embed matching installer/uninstaller icons so NSIS never falls back.
+  installerIcon: assets/icons/icon.ico
+  uninstallerIcon: assets/icons/icon.ico
   target:
     - target: nsis
       arch:

@@ -26,6 +26,7 @@ import { ContextRing } from './ContextRing'
 
 type PluginLite = { id: string; title: string; packageName: string }
 type PickKind = 'plugin' | 'skill' | null
+type StatusNote = { kind: 'info' | 'error'; text: string }
 
 const PHASE_LABEL: Record<AgentPhase, string> = {
   idle: '就绪',
@@ -107,6 +108,42 @@ function StatusLabel({ phase }: { phase: AgentPhase }): JSX.Element {
   )
 }
 
+function ErrorBanner({
+  text,
+  onDismiss
+}: {
+  text: string
+  onDismiss: () => void
+}): JSX.Element {
+  const [copied, setCopied] = useState(false)
+  const copy = () => {
+    void navigator.clipboard
+      ?.writeText(text)
+      .then(() => {
+        setCopied(true)
+        window.setTimeout(() => setCopied(false), 1500)
+      })
+      .catch(() => {
+        /* clipboard unavailable — text is still selectable */
+      })
+  }
+  return (
+    <div className="composer-error" role="alert">
+      <div className="composer-error-bar">
+        <span className="composer-error-label">出错了</span>
+        <span className="composer-error-spacer" />
+        <button type="button" className="composer-error-btn" onClick={copy}>
+          {copied ? '已复制' : '复制'}
+        </button>
+        <button type="button" className="composer-error-btn" onClick={onDismiss} aria-label="关闭">
+          ×
+        </button>
+      </div>
+      <pre className="composer-error-body">{text}</pre>
+    </div>
+  )
+}
+
 export function AgentWorkspace({
   taskId,
   settings,
@@ -134,7 +171,7 @@ export function AgentWorkspace({
   const [sending, setSending] = useState(false)
   const [permission, setPermission] = useState<PermissionRequestPayload | null>(null)
   const [phase, setPhase] = useState<AgentPhase>('idle')
-  const [statusNote, setStatusNote] = useState<string | null>(null)
+  const [statusNote, setStatusNote] = useState<StatusNote | null>(null)
   const [accessMode, setAccessMode] = useState<AccessMode>('approve')
   const [plusOpen, setPlusOpen] = useState(false)
   const [ctxUsed, setCtxUsed] = useState(0)
@@ -178,6 +215,10 @@ export function AgentWorkspace({
         if (cancelled) return
         const t = tasks.find((x) => x.id === taskId) ?? null
         setTask(t)
+        if (t?.status === 'error' && t.lastError) {
+          setPhase('error')
+          setStatusNote({ kind: 'error', text: t.lastError })
+        }
         setAccessMode(t?.accessMode ?? 'approve')
         setMessages(history)
         setPhase(t?.status === 'running' ? 'thinking' : t?.status === 'error' ? 'error' : 'idle')
@@ -227,7 +268,7 @@ export function AgentWorkspace({
         else if (e.status === 'running') setPhase('thinking')
         else if (e.status === 'error') {
           setPhase('error')
-          setStatusNote(e.error || '出错了')
+          setStatusNote({ kind: 'error', text: e.error || '出错了' })
         } else setPhase('idle')
         if (e.status !== 'running') setSending(false)
         if (e.status === 'running') setStatusNote(null)
@@ -245,7 +286,7 @@ export function AgentWorkspace({
         // Background task waiting for permission — keep sidebar fresh
         onTasksChanged()
       } else if (e.type === 'error' && e.taskId === taskId) {
-        setStatusNote(e.message)
+        setStatusNote({ kind: 'error', text: e.message })
         setPhase('error')
         setSending(false)
       } else if (e.type === 'usage' && e.taskId === taskId) {
@@ -393,7 +434,7 @@ export function AgentWorkspace({
       accessMode
     })
     if (!result.ok) {
-      setStatusNote(result.error || '发送失败')
+      setStatusNote({ kind: 'error', text: result.error || '发送失败' })
       setPhase('error')
       setSending(false)
       return
@@ -408,9 +449,9 @@ export function AgentWorkspace({
     const r = await switchModel(taskId, modelId)
     if (r.ok) {
       setTask((t) => (t ? { ...t, modelId } : t))
-      setStatusNote('模型已切换 · 下一动作生效')
+      setStatusNote({ kind: 'info', text: '模型已切换 · 下一动作生效' })
     } else {
-      setStatusNote(r.error || '切换模型失败')
+      setStatusNote({ kind: 'error', text: r.error || '切换模型失败' })
     }
   }
 
@@ -420,10 +461,13 @@ export function AgentWorkspace({
     setAccessMode(mode)
     const r = await switchAccessMode(taskId, mode)
     if (r.ok) {
-      setStatusNote(mode === 'full' ? '已切到完全访问 · 下一动作生效' : '已切到审批模式 · 下一动作生效')
+      setStatusNote({
+        kind: 'info',
+        text: mode === 'full' ? '已切到完全访问 · 下一动作生效' : '已切到审批模式 · 下一动作生效'
+      })
     } else {
       setAccessMode(prev)
-      setStatusNote(r.error || '切换访问模式失败')
+      setStatusNote({ kind: 'error', text: r.error || '切换访问模式失败' })
     }
   }
 
@@ -515,10 +559,16 @@ export function AgentWorkspace({
           </div>
         )}
 
+        {statusNote?.kind === 'error' && (
+          <ErrorBanner text={statusNote.text} onDismiss={() => setStatusNote(null)} />
+        )}
+
         <div className="composer-box">
           <div className="composer-header">
             <StatusLabel phase={phase} />
-            {statusNote && <span className="composer-note">{statusNote}</span>}
+            {statusNote?.kind === 'info' && (
+              <span className="composer-note">{statusNote.text}</span>
+            )}
             <span className="composer-header-spacer" />
             {skillRefs.map((id) => (
               <span key={`hs-${id}`} className="ref-chip skill">

@@ -1019,6 +1019,69 @@
   flex: 0 1 auto;
 }
 
+/* Full SDK / runtime error above the composer — scrollable + selectable + copyable */
+.composer-error {
+  margin: 0 0 8px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--separator));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--danger) 8%, var(--bg));
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.composer-error-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 0;
+}
+
+.composer-error-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--danger);
+  letter-spacing: 0.02em;
+}
+
+.composer-error-spacer {
+  flex: 1 1 auto;
+}
+
+.composer-error-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--fg-secondary);
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.composer-error-btn:hover {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg);
+}
+
+.composer-error-body {
+  margin: 0;
+  padding: 6px 12px 10px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--fg);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
 .composer-input {
   width: 100%;
   resize: none;

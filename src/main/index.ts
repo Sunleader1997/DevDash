@@ -1,4 +1,5 @@
-import { app, BrowserWindow, shell, protocol, ipcMain, nativeImage } from 'electron'
+import { app, BrowserWindow, shell, protocol, ipcMain, nativeImage, NativeImage } from 'electron'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { registerIpc, registerPluginProtocol } from './ipc'
 import { pluginRegistry } from './plugin/registry'
@@ -6,8 +7,37 @@ import { setupAgent } from './agent/setup'
 import { seedBundledSkills } from './agent/skillSeed'
 import { applyCdpSwitchEarly, activateCdpInfo } from './uiDev/uiDevService'
 
-const ICONS_DIR = join(app.getAppPath(), 'assets/icons')
-const APP_ICON = join(ICONS_DIR, 'icon.png')
+// Prefer unpacked icon (extraResources) so dock/window icon never hits asar
+// and the bundle CFBundleIconFile / process icon stay consistent on quit.
+function resolveAppIcon(): string {
+  const packed = join(process.resourcesPath, 'app-icon', 'icon.png')
+  if (existsSync(packed)) return packed
+  return join(app.getAppPath(), 'assets/icons/icon.png')
+}
+
+const APP_ICON = resolveAppIcon()
+
+function loadAppImage(): NativeImage | null {
+  try {
+    const img = nativeImage.createFromBuffer(readFileSync(APP_ICON))
+    return img.isEmpty() ? null : img
+  } catch {
+    return null
+  }
+}
+
+/** Call as early as possible on ready — running dock icon AND the image used at quit. */
+function applyAppIcon(): void {
+  const img = loadAppImage()
+  if (!img) return
+  if (process.platform === 'darwin' && app.dock) {
+    try {
+      app.dock.setIcon(img)
+    } catch {
+      /* icon optional at dev time */
+    }
+  }
+}
 
 // CDP port must be switched before ready. Persist discovery info after ready.
 const cdpBootstrap = applyCdpSwitchEarly()
@@ -34,7 +64,7 @@ function createWindow(): void {
     minHeight: 640,
     show: false,
     title: 'DevDash',
-    icon: APP_ICON,
+    icon: loadAppImage() ?? APP_ICON,
     backgroundColor: '#1c1c1e',
     // macOS keeps native traffic lights; Windows/Linux use custom red/yellow/green
     frame: isMac,
@@ -93,13 +123,8 @@ function registerWindowControls(): void {
 }
 
 app.whenReady().then(async () => {
-  if (process.platform === 'darwin' && app.dock) {
-    try {
-      app.dock.setIcon(nativeImage.createFromPath(APP_ICON))
-    } catch {
-      /* icon optional at dev time */
-    }
-  }
+  // Set icon first so quit/teardown never flashes the framework icon.
+  applyAppIcon()
   registerPluginProtocol()
   registerWindowControls()
   registerIpc()

@@ -19,6 +19,14 @@ import { classifyTool, denyAllPending, requestPermission, setAllowToolForSession
 import { pluginRegistry } from '../plugin/registry'
 import { buildSkillContext, listSkills } from './skills'
 
+/** Prefer full Error.stack (message + frames) so the UI can show/copy the whole failure. */
+function formatError(err: unknown): string {
+  if (err instanceof Error) {
+    return err.stack || err.message || String(err)
+  }
+  return String(err)
+}
+
 /**
  * Native Claude Code CLI shipped with the installer (extraResources) or the
  * optional platform package in node_modules during development.
@@ -601,7 +609,7 @@ async function consumeStream(
       }
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    const message = formatError(err)
     await sessionStore.updateTask(taskId, { status: 'error', lastError: message })
     broadcast({ type: 'error', taskId, message })
     broadcast({ type: 'status', taskId, status: 'error', error: message, phase: 'error' })
@@ -842,7 +850,7 @@ export async function sendMessage(params: {
     session.push(makeUserMessage(body, randomUUID()))
     return { ok: true }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    const message = formatError(err)
     await sessionStore.updateTask(taskId, { status: 'error', lastError: message })
     broadcast({ type: 'error', taskId, message })
     return { ok: false, error: message }
