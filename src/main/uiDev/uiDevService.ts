@@ -1,6 +1,7 @@
 import { app, BrowserWindow } from 'electron'
 import { promises as fs, readFileSync } from 'node:fs'
 import path from 'node:path'
+import { refreshPlugins } from './refreshPlugins'
 
 export type CdpInfo = {
   enabled: boolean
@@ -214,8 +215,24 @@ export async function reloadPluginUi(pluginId?: string): Promise<{
     ok: true,
     pluginId: pluginId ?? null,
     method: 'ui-module-reload',
-    note: '已通知渲染进程重载插件 UI。若刚改了源码，请先 npm run build:plugins。新建插件或新 IPC 仍需重启应用。'
+    note: '已通知渲染进程重载插件 UI。改过源码请先构建（仓库 npm run build:plugins，或 node <plugin-sdk>/build.mjs）。新建插件请再调用 refresh_plugins。'
   }
+}
+
+/**
+ * Re-discover plugins (including new user plugins) and notify the renderer.
+ * New plugin IPC works without a window reload (preload matches plugin:<id>:<suffix>).
+ */
+export async function refreshPluginsUi(): Promise<Record<string, unknown>> {
+  const result = await refreshPlugins()
+  const win = getMainWindow()
+  if (win) {
+    await win.webContents.executeJavaScript(
+      `window.dispatchEvent(new CustomEvent('devdash:plugins-changed', { detail: { t: Date.now(), count: ${result.count} } })); true`,
+      true
+    )
+  }
+  return { ...result, notified: Boolean(win) }
 }
 
 export function getCdpInfo(): CdpInfo {

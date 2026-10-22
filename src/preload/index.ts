@@ -40,6 +40,13 @@ const HOST_CHANNELS = [
 
 const EVENT_CHANNELS = new Set(['agent:event'])
 
+/**
+ * Plugin domain channels: `plugin:<id>:<suffix>`.
+ * Pattern match so newly discovered user plugins can IPC without a window reload.
+ * Authorization is enforced in main via registerIpc (manifest-declared suffixes only).
+ */
+const PLUGIN_CHANNEL_RE = /^plugin:[a-z0-9][a-z0-9-]*:[A-Za-z0-9:._-]+$/
+
 const allowed = new Set(HOST_CHANNELS)
 
 for (const arg of process.argv) {
@@ -57,7 +64,7 @@ for (const arg of process.argv) {
 }
 
 const invoke = (channel: string, ...args: unknown[]): Promise<unknown> => {
-  if (!allowed.has(channel)) {
+  if (!allowed.has(channel) && !PLUGIN_CHANNEL_RE.test(channel)) {
     return Promise.reject(new Error(`IPC channel not allowed: ${channel}`))
   }
   return ipcRenderer.invoke(channel, ...args)

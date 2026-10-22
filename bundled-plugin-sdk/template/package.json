@@ -1,0 +1,15 @@
+{
+  "name": "devdash-plugin-__PLUGIN_ID__",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "devdash": {
+    "id": "__PLUGIN_ID__",
+    "title": "__PLUGIN_TITLE__",
+    "icon": "puzzle",
+    "ui": "dist/ui.js",
+    "main": "dist/main.js",
+    "order": 100,
+    "ipc": []
+  }
+}

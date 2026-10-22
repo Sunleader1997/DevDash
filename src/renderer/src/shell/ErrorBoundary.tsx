@@ -1,6 +1,10 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 
-type Props = { children: ReactNode }
+type Props = {
+  children: ReactNode
+  /** Prefer re-importing the plugin module over re-rendering the same broken tree. */
+  onRetry?: () => void
+}
 type State = { error: Error | null }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -14,6 +18,15 @@ export class ErrorBoundary extends Component<Props, State> {
     console.error('[DevDash] render error', error, info.componentStack)
   }
 
+  private handleRetry = (): void => {
+    // Prefer re-import: parent unmounts this boundary and loads a fresh module.
+    if (this.props.onRetry) {
+      this.props.onRetry()
+      return
+    }
+    this.setState({ error: null })
+  }
+
   render(): ReactNode {
     if (this.state.error) {
       return (
@@ -23,10 +36,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <div style={{ color: 'var(--danger)', marginBottom: 12, wordBreak: 'break-all' }}>
               {this.state.error.message}
             </div>
-            <button
-              className="gm-btn"
-              onClick={() => this.setState({ error: null })}
-            >
+            <button className="gm-btn" onClick={this.handleRetry}>
               重试
             </button>
           </div>

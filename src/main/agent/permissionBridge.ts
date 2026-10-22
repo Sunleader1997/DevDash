@@ -41,7 +41,20 @@ const AUTO_ALLOW_TOOLS = new Set([
   'WebFetch'
 ])
 
-const SAFE_BASH = /^\s*(npm\s+run\s+(typecheck|build|build:plugins|ensure:electron|dev|start)|node\s+scripts\/(smoke|build-plugins|ensure-electron)\.mjs|git\s+(status|log|diff|show|branch|ls-files)|tsc\b)/
+/**
+ * Auto-allow a single safe command only.
+ * Reject shell chaining / substitution first, then require the whole string
+ * (including args) to be a known safe invocation.
+ */
+const SHELL_METACHAR = /[\n\r;&|<>`$]/
+
+const SAFE_BASH =
+  /^\s*(npm\s+run\s+(typecheck|build|build:plugins|ensure:electron|dev|start)|node\s+scripts\/(smoke|build-plugins|ensure-electron)\.mjs|node\s+\S*plugin-sdk[/\\](build|create)\.mjs|git\s+(status|log|diff|show|branch|ls-files)|tsc\b)(\s+\S+)*\s*$/
+
+function isSafeBash(cmd: string): boolean {
+  if (SHELL_METACHAR.test(cmd)) return false
+  return SAFE_BASH.test(cmd)
+}
 
 const DANGEROUS_BASH = /\b(rm\s+-rf|git\s+push\s+--force|git\s+reset\s+--hard|git\s+clean\s+-fd|sudo\b|mkfs|dd\s+if=)/
 
@@ -112,7 +125,7 @@ export function classifyTool(
   if (toolName === 'Bash') {
     const cmd = String(input.command ?? '')
     if (DANGEROUS_BASH.test(cmd)) return { autoAllow: false, dangerous: true }
-    if (SAFE_BASH.test(cmd)) return { autoAllow: true, dangerous: false }
+    if (isSafeBash(cmd)) return { autoAllow: true, dangerous: false }
     return { autoAllow: false, dangerous: true }
   }
 

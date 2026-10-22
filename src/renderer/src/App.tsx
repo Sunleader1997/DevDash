@@ -24,7 +24,12 @@ export default function App(): JSX.Element {
   const [tasks, setTasks] = useState<TaskListItem[]>([])
   const [view, setView] = useState<View | null>(null)
   const [loaded, setLoaded] = useState<Record<string, LoadedPlugin>>({})
+  /** App-level notices (task ops etc.) — toast only, never blocks the workspace. */
   const [error, setError] = useState<string | null>(null)
+  /** Per-plugin dynamic-import failures. Scoped to the plugin pane so sessions stay usable. */
+  const [pluginErrors, setPluginErrors] = useState<Record<string, string>>({})
+  /** Bumped on retry / hot-reload so the lazy-import effect re-runs. */
+  const [loadNonce, setLoadNonce] = useState(0)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsFocus, setSettingsFocus] = useState<'models' | 'uiDev'>('models')
   const [agentSettings, setAgentSettings] = useState<AgentSettings | null>(null)
@@ -86,12 +91,18 @@ export default function App(): JSX.Element {
     if (!meta || loaded[activeId]) return
     let cancelled = false
     const gen = reloadGen.current
+    setPluginErrors((prev) => {
+      if (!(activeId in prev)) return prev
+      const next = { ...prev }
+      delete next[activeId]
+      return next
+    })
     import(/* @vite-ignore */ `${meta.uiUrl}?t=${Date.now()}`)
       .then((mod: { default?: { App: ComponentType }; App?: ComponentType }) => {
         if (cancelled || gen !== reloadGen.current) return
         const pluginApp = mod.default?.App ?? mod.App
         if (!pluginApp) {
-          setError(`插件 ${meta.id} 未导出 App 组件`)
+          setPluginErrors((prev) => ({ ...prev, [activeId]: `插件 ${meta.id} 未导出 App 组件` }))
           return
         }
         setLoaded((prev) => ({
@@ -101,12 +112,31 @@ export default function App(): JSX.Element {
       })
       .catch((e: Error) => {
         if (cancelled || gen !== reloadGen.current) return
-        setError(`加载插件失败：${e.message}`)
+        setPluginErrors((prev) => ({
+          ...prev,
+          [activeId]: `加载插件失败：${e.message}`
+        }))
       })
     return () => {
       cancelled = true
     }
-  }, [view, plugins, loaded])
+  }, [view, plugins, loaded, loadNonce])
+
+  const retryPlugin = useCallback((pluginId: string) => {
+    setPluginErrors((prev) => {
+      if (!(pluginId in prev)) return prev
+      const next = { ...prev }
+      delete next[pluginId]
+      return next
+    })
+    setLoaded((prev) => {
+      if (!(pluginId in prev)) return prev
+      const next = { ...prev }
+      delete next[pluginId]
+      return next
+    })
+    setLoadNonce((n) => n + 1)
+  }, [])
 
   // Hot-reload plugin UI modules (agent tool / manual) without restarting Electron.
   useEffect(() => {
@@ -122,16 +152,29 @@ export default function App(): JSX.Element {
         delete next[targetId]
         return next
       })
+      setPluginErrors((prev) => {
+        if (!targetId) return {}
+        if (!(targetId in prev)) return prev
+        const next = { ...prev }
+        delete next[targetId]
+        return next
+      })
       setError(null)
-      // Re-discover list so new/renamed plugins show up (UI-only; IPC still needs restart).
+      setLoadNonce((n) => n + 1)
+      // Re-discover list so new/renamed plugins show up (plugin IPC is runtime-registered).
       window.devdash
         .invoke('plugin:list')
         .then((raw) => setPlugins(raw as DiscoveredPlugin[]))
         .catch(() => {})
     }
+    const onPluginsChanged = (): void => {
+      onReload(new CustomEvent('devdash:reload-plugin-ui', { detail: {} }))
+    }
     window.addEventListener('devdash:reload-plugin-ui', onReload as EventListener)
+    window.addEventListener('devdash:plugins-changed', onPluginsChanged as EventListener)
     return () => {
       window.removeEventListener('devdash:reload-plugin-ui', onReload as EventListener)
+      window.removeEventListener('devdash:plugins-changed', onPluginsChanged as EventListener)
     }
   }, [])
 
@@ -139,6 +182,7 @@ export default function App(): JSX.Element {
     void createTask('新任务')
       .then((t) => {
         refreshTasks()
+        setError(null)
         setView({ kind: 'agent', taskId: t.id })
       })
       .catch((e: Error) => setError(e.message))
@@ -155,7 +199,18 @@ export default function App(): JSX.Element {
       .catch((e: Error) => setError(e.message))
   }
 
+  const selectPlugin = (id: string): void => {
+    setError(null)
+    setView({ kind: 'plugin', pluginId: id })
+  }
+
+  const selectTask = (id: string): void => {
+    setError(null)
+    setView({ kind: 'agent', taskId: id })
+  }
+
   const activePlugin = view?.kind === 'plugin' ? loaded[view.pluginId] : null
+  const pluginError = view?.kind === 'plugin' ? (pluginErrors[view.pluginId] ?? null) : null
   const titlePage =
     view?.kind === 'agent'
       ? 'Agent 任务'
@@ -200,8 +255,8 @@ export default function App(): JSX.Element {
           activeId={view?.kind === 'plugin' ? view.pluginId : null}
           tasks={tasks}
           activeTaskId={view?.kind === 'agent' ? view.taskId : null}
-          onSelectPlugin={(id) => setView({ kind: 'plugin', pluginId: id })}
-          onSelectTask={(id) => setView({ kind: 'agent', taskId: id })}
+          onSelectPlugin={selectPlugin}
+          onSelectTask={selectTask}
           onNewTask={onNewTask}
           onDeleteTask={onDeleteTask}
           onOpenSettings={() => {
@@ -211,14 +266,7 @@ export default function App(): JSX.Element {
         />
         <main className="workspace">
           <div className="workspace-body">
-            {error ? (
-              <div className="empty-state">
-                <div>
-                  <div style={{ fontWeight: 600, marginBottom: 8 }}>出错了</div>
-                  <div>{error}</div>
-                </div>
-              </div>
-            ) : view?.kind === 'agent' ? (
+            {view?.kind === 'agent' ? (
               <AgentWorkspace
                 key={view.taskId}
                 taskId={view.taskId}
@@ -230,12 +278,42 @@ export default function App(): JSX.Element {
                 }}
                 onTasksChanged={refreshTasks}
               />
+            ) : pluginError ? (
+              <div className="empty-state">
+                <div style={{ maxWidth: 520 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 8 }}>插件加载失败</div>
+                  <div
+                    style={{
+                      color: 'var(--danger)',
+                      marginBottom: 12,
+                      wordBreak: 'break-all'
+                    }}
+                  >
+                    {pluginError}
+                  </div>
+                  <div style={{ marginBottom: 16, color: 'var(--fg-secondary)' }}>
+                    插件还在开发中或构建产物损坏时会出现。修好后点「重试」，或让 agent
+                    构建后再热重载；切换左侧会话不受影响。
+                  </div>
+                  <button
+                    className="gm-btn"
+                    onClick={() => view && retryPlugin(view.pluginId)}
+                  >
+                    重试
+                  </button>
+                </div>
+              </div>
             ) : activePlugin ? (
-              <ErrorBoundary key={activePlugin.meta.id}>
+              <ErrorBoundary
+                key={activePlugin.meta.id}
+                onRetry={() => retryPlugin(activePlugin.meta.id)}
+              >
                 <Suspense fallback={<div className="empty-state">加载插件…</div>}>
                   <activePlugin.App />
                 </Suspense>
               </ErrorBoundary>
+            ) : view?.kind === 'plugin' ? (
+              <div className="empty-state">加载插件…</div>
             ) : (
               <div className="empty-state">
                 <div>
@@ -247,6 +325,19 @@ export default function App(): JSX.Element {
           </div>
         </main>
       </div>
+      {error ? (
+        <div className="toast error" role="alert">
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>出错了</div>
+          <div style={{ wordBreak: 'break-all' }}>{error}</div>
+          <button
+            className="gm-btn"
+            style={{ marginTop: 8 }}
+            onClick={() => setError(null)}
+          >
+            知道了
+          </button>
+        </div>
+      ) : null}
       <SettingsModal
         open={settingsOpen}
         focus={settingsFocus}

@@ -6,6 +6,10 @@ import { pluginRegistry } from './plugin/registry'
 import { setupAgent } from './agent/setup'
 import { seedBundledSkills } from './agent/skillSeed'
 import { applyCdpSwitchEarly, activateCdpInfo } from './uiDev/uiDevService'
+import { enrichProcessPath } from './pathEnv'
+
+// Must run before any child process (claude CLI / npm / node scripts) is spawned.
+enrichProcessPath()
 
 // Prefer unpacked icon (extraResources) so dock/window icon never hits asar
 // and the bundle CFBundleIconFile / process icon stay consistent on quit.

@@ -89,4 +89,34 @@ for (const id of ['compose-next', 'devdash-plugin-dev', 'playwright']) {
   console.log(`bundled skill ${id}:`, ok ? 'OK' : 'MISSING')
   if (!ok) process.exit(1)
 }
+
+// User-plugin SDK: scaffold + esbuild-wasm build + discovery contract.
+const sdkRoot = path.join(root, 'bundled-plugin-sdk')
+for (const rel of ['build.mjs', 'create.mjs', 'shims/host-react.ts', 'shims/host-jsx-runtime.ts', 'template/package.json']) {
+  const ok = await fs.access(path.join(sdkRoot, rel)).then(() => true).catch(() => false)
+  console.log(`plugin-sdk ${rel}:`, ok ? 'OK' : 'MISSING')
+  if (!ok) process.exit(1)
+}
+const sdkTmp = await fs.mkdtemp(path.join(os.tmpdir(), 'devdash-sdk-'))
+await execFileAsync('node', [path.join(sdkRoot, 'create.mjs'), 'smoke-pet', '--title', 'Smoke Pet'], { cwd: sdkTmp })
+const petDir = path.join(sdkTmp, 'plugins', 'smoke-pet')
+await execFileAsync('node', [path.join(sdkRoot, 'build.mjs')], { cwd: petDir })
+const petPkg = JSON.parse(await fs.readFile(path.join(petDir, 'package.json'), 'utf8'))
+if (!petPkg.devdash?.id || !petPkg.devdash?.title) {
+  console.error('FAIL: user plugin manifest missing id/title')
+  process.exit(1)
+}
+for (const rel of [petPkg.devdash.ui ?? 'dist/ui.js', petPkg.devdash.main ?? 'dist/main.js']) {
+  const ok = await fs.access(path.join(petDir, rel)).then(() => true).catch(() => false)
+  console.log(`user plugin ${petPkg.devdash.id} ${rel}:`, ok ? 'OK' : 'MISSING')
+  if (!ok) process.exit(1)
+}
+const petUi = await fs.readFile(path.join(petDir, petPkg.devdash.ui ?? 'dist/ui.js'), 'utf8')
+if (!petUi.includes('DevDashHost') || !petUi.includes('as default')) {
+  console.error('FAIL: user plugin ui.js should bundle host React shim and default export')
+  process.exit(1)
+}
+console.log('user plugin sdk build:', 'OK')
+await fs.rm(sdkTmp, { recursive: true, force: true })
+
 console.log('SMOKE PASS')

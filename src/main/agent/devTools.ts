@@ -4,6 +4,7 @@ import {
   captureDomSnapshot,
   captureScreenshot,
   getCdpInfo,
+  refreshPluginsUi,
   reloadPluginUi
 } from '../uiDev/uiDevService'
 
@@ -89,7 +90,7 @@ export function createDevDashMcpServer(): ReturnType<typeof createSdkMcpServer> 
 
   const reloadTool = tool(
     'reload_plugin_ui',
-    'Reload DevDash plugin UI modules without restarting the app (clears module cache, cache-busting re-import). Run npm run build:plugins first if sources changed. New plugins or new IPC channels still need an app restart.',
+    'Reload DevDash plugin UI modules without restarting the app (clears module cache, cache-busting re-import). Run the plugin build first if sources changed (repo: npm run build:plugins; user plugin: node <plugin-sdk>/build.mjs). For brand-new plugins call refresh_plugins after building.',
     {
       pluginId: z.string().optional().describe('Plugin id to reload; omit for all loaded plugins')
     },
@@ -105,6 +106,30 @@ export function createDevDashMcpServer(): ReturnType<typeof createSdkMcpServer> 
     {
       annotations: {
         title: '重载插件 UI',
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false
+      },
+      alwaysLoad: true
+    }
+  )
+
+  const refreshPluginsTool = tool(
+    'refresh_plugins',
+    'Re-discover DevDash plugins from plugin roots (including new user plugins under userData/plugins) and refresh the sidebar. Call after create.mjs + build.mjs. New plugin IPC works without an app restart.',
+    {},
+    async () => {
+      try {
+        const result = await refreshPluginsUi()
+        return textResult(JSON.stringify(result, null, 2))
+      } catch (err) {
+        return errorResult(err)
+      }
+    },
+    {
+      annotations: {
+        title: '重发现插件',
         readOnlyHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -139,8 +164,8 @@ export function createDevDashMcpServer(): ReturnType<typeof createSdkMcpServer> 
     name: 'devdash',
     version: '0.1.0',
     instructions:
-      'DevDash UI acceptance tools. After editing plugins run build:plugins then reload_plugin_ui; verify with dom_snapshot and screenshot. CDP is optional and controlled in app settings.',
-    tools: [screenshotTool, snapshotTool, reloadTool, cdpTool],
+      'DevDash UI acceptance tools. After editing plugins run the build (npm run build:plugins or node <plugin-sdk>/build.mjs), then refresh_plugins for new plugins or reload_plugin_ui for UI-only changes; verify with dom_snapshot and screenshot. CDP is optional and controlled in app settings.',
+    tools: [screenshotTool, snapshotTool, reloadTool, refreshPluginsTool, cdpTool],
     alwaysLoad: true
   })
 }

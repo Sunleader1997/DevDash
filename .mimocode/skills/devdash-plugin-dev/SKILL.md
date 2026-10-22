@@ -1,6 +1,6 @@
 ---
 name: devdash-plugin-dev
-description: DevDash 插件应用开发规范与工程约定。Use when adding or modifying DevDash sub-app plugins, implementing npm-installable plugins under plugins/, wiring Electron IPC for git/GitLab features, building the Git Manager plugin UI, or asking how to "写插件 / 新增子应用 / 改 Git 管理 / 插件清单怎么配". Covers plugin manifest, DevDashHost, build scripts, and UI rules used in this repo.
+description: DevDash 插件应用开发规范与工程约定。Use when adding or modifying DevDash sub-app plugins, implementing npm-installable plugins, scaffolding user plugins with the plugin SDK, wiring Electron IPC, or asking how to "写插件 / 新增子应用 / 改 Git 管理 / 插件清单怎么配 / 贪吃蛇插件". Covers plugin manifest, DevDashHost, dual workflows (source repo vs installed app), and build scripts.
 ---
 
 # DevDash 插件应用开发
@@ -10,6 +10,19 @@ description: DevDash 插件应用开发规范与工程约定。Use when adding o
 - 插件必须可被主应用通过 `package.json` 的 `devdash` 清单发现；不要硬编码插件 UI 到宿主 React 树。
 - 禁止创建 `.worktree`、禁止新建功能分支；直接在当前目录修改。
 - 主进程侧 Git/路径参数一律 `execFile` 数组传参；用户可控的 rev/range 必须校验后再传给 git。
+- **先分清工作区再动手**（见下）。安装版不要去找 DevDash 源码仓库。
+
+## 双工作区
+
+| | 源码仓库（dev / clone） | 安装版 / userData |
+| --- | --- | --- |
+| 识别 | 工作区有 `package.json` + `src/` + `plugins/` | 工作区是应用数据目录（无 monorepo 根） |
+| 新建 | `plugins/<name>` npm workspace | `node "<SDK>/create.mjs" <id> [--title "…"]` |
+| 构建 | `npm run build:plugins` | `cd plugins/<id> && node "<SDK>/build.mjs"` |
+| 热部署 | `mcp__devdash__reload_plugin_ui` | 新建/集合变化 → `mcp__devdash__refresh_plugins`；改 UI → `reload_plugin_ui` |
+| 改内置插件 | 改 `plugins/<src>` | **不支持**（只有 dist）；新建用户插件 |
+
+`<SDK>` = 系统提示里写明的 plugin-sdk 路径（开发态 `<repo>/bundled-plugin-sdk`，安装版 `<resources>/plugin-sdk`）。
 
 ## 架构速览
 
@@ -18,40 +31,38 @@ DevDash/
 ├── src/main/          # 窗口、插件注册表、plugin protocol、通用 fs/shell/store
 ├── src/preload/       # IPC 白名单 bridge → window.devdash
 ├── src/renderer/      # 宿主壳：侧栏、footer 任务、title 栏、插件宿主
-└── plugins/<name>/    # npm workspace 子应用
+├── bundled-plugin-sdk/  # 用户插件 SDK（shims / template / create+build）
+└── plugins/<name>/    # npm workspace 子应用（源码仓库内置插件）
     ├── package.json   # 含 devdash 清单（id / ui / main / ipc）
-    ├── vite.config.ts # 构建 ui.js / main.js
     └── src/
         ├── main.ts    # activate(ctx).registerIpc — 领域 IPC
-        ├── git|gitlab|store/  # 领域实现（git-manager）
         └── ui/
 ```
 
-- **main**：`plugin/registry.ts` 扫描 `plugins/*/package.json` 与 `plugins/node_modules/**`，加载插件 `main` 并校验 IPC 后缀。
+- **main**：`plugin/registry.ts` 扫描 `app/plugins` 与 `userData/plugins`（含 `node_modules/**`），加载插件 `main` 并校验 IPC 后缀。
 - **renderer**：`App.tsx` 通过 `devdash-plugin://<id>/dist/ui.js` 动态 `import` 插件。
-- **React 注入**：插件构建把 `react` / `react/jsx-runtime` alias 到 `src/ui/host-react.ts`、`host-jsx-runtime.ts`，运行时读 `globalThis.DevDashHost.React`（宿主 `main.tsx` 注入）。
-- **领域边界**：`git`/`gitlab`/打开策略 settings 等插件业务在插件包内；宿主只留平台能力。
+- **React 注入**：构建把 `react` / `react/jsx-runtime` alias 到 host shim，运行时读 `globalThis.DevDashHost.React`。
+- **用户插件位置（安装版）**：`<workspace>/plugins/<id>/`（workspace 即 agent 工作目录 / userData）。
 
 ## 插件清单
 
 ```json
 {
-  "name": "@devdash/git-manager",
+  "name": "devdash-plugin-snake",
   "devdash": {
-    "id": "git-manager",
-    "title": "Git 管理",
-    "icon": "git-branch",
+    "id": "snake",
+    "title": "贪吃蛇",
+    "icon": "puzzle",
     "ui": "dist/ui.js",
     "main": "dist/main.js",
-    "order": 10,
-    "ipc": ["git:status", "gitlab:create-mr", "settings:get"]
+    "order": 100,
+    "ipc": ["score:get"]
   }
 }
 ```
 
-- `id` 全局唯一；`ui`/`main` 为包内相对路径（构建产物）。
+- `id` 全局唯一，`^[a-z0-9][a-z0-9-]*$`；`ui`/`main` 为包内相对路径（构建产物）。
 - `ipc` 为插件通道**后缀**白名单；完整通道名为 `plugin:<id>:<suffix>`。
-- 新插件放入 `plugins/<name>`，并在 `plugins` workspaces 自动被扫描；用 `npm run build:plugins` 构建。
 
 ## 插件 UI 入口契约
 
@@ -87,33 +98,38 @@ DevDash/
 - 未跟踪文件：`git diff HEAD -- path` 可能成功且空，用 `ls-files --error-unmatch` 判断。
 - 根提交 diff 用 empty-tree：`4b825dc642cb6eb9a060e54bf8d69288fbee4904`。
 - `fs:probe-file` / `fs:read-text-file` 的打开策略由调用方传入；宿主保留 200MB 硬上限。
-- 插件 `main` 与宿主同进程；装进 `plugins/` 即与宿主同权。
+- 插件 `main` 与宿主同进程；装进 plugins/ 即与宿主同权。
 
-## Git 管理插件 UI 约定
+## 安装版用户插件流程（示例：贪吃蛇）
 
-- 文件树：单行 nowrap；同级目录/文件同缩进 + 独立箭头列；目录链折叠为 `a/b/c`。
-- 状态色（文件名着色，禁止整行色块背景）：未跟踪/删除=红，已跟踪又改=蓝，新建已 add=绿，忽略=棕。
-- 打开文件：单列 unified Diff（隐藏 `diff --git`）；白名单/大小不满足时出「强制打开 + 并加入白名单」。
-- 全局打开策略在侧栏 footer「全局设置」；GitLab/Assignee/Reviewer 在「设置」视图。
-- Commit 模式：扁平勾选变更文件 + 大 message 框 + commit / commit and push；Push 弹窗展示待推 commit 与目标分支。
+```bash
+# 1. 脚手架（在 agent 工作区根执行）
+node "<SDK>/create.mjs" snake --title "贪吃蛇"
 
-## 构建与验证
+# 2. 在 plugins/snake/src/ 写玩法与 UI；需要 IPC 则三处同步
+# 3. 构建（esbuild-wasm，无需安装 vite）
+cd plugins/snake && node "<SDK>/build.mjs"
+```
 
-- `plugins/*/dist` **不提交 git**；clone / CI 后必须先 `npm install` 或 `npm run build:plugins`，否则宿主加载 `dist/ui.js` 失败。
+然后调用 `mcp__devdash__refresh_plugins`（新插件进侧栏 + 注册 IPC，无需重启），
+必要时 `mcp__devdash__reload_plugin_ui`，再用 `dom_snapshot` / `screenshot` 验收。
+
+## 源码仓库内置插件
+
+- 新插件放入 `plugins/<name>`，workspaces 自动被扫描；用 `npm run build:plugins` 构建。
+- React alias 用**精确正则**（`/^react$/`），裸字符串会让 `react/jsx-runtime` 解析错 shim。
+- `plugins/*/dist` 不提交 git；clone / CI 后必须先 `npm install` 或 `npm run build:plugins`。
 
 ```bash
 npm run typecheck
 npm run build:plugins
 npx electron-vite build
-# 仓库根目录 smoke：node scripts 下的 smoke.mjs
+node scripts/smoke.mjs
 npm run dev
 ```
 
-- Windows 若报 `Electron uninstall`：跑 `npm run ensure:electron`（补 `path.txt`）。
-- 插件改完必须 `build:plugins` 再进 Electron，否则 UI 仍是旧 bundle。
-
 ## Examples
 
-- 「给 DevDash 加个新的 xx 插件」→ 在 `plugins/xx` 建清单 + vite lib 构建 ui/main，宿主侧栏自动出现。
-- 「Git 树颜色不对」→ 改 `plugins/git-manager/src/git/gitService.ts` 的 `classifyPorcelain` 与插件 `styles.ts` 的 `st-*` 仅作用于文字。
+- 「开发一个贪吃蛇的小游戏」→ 安装版走用户插件流程（create → 写 src → build → refresh_plugins）；源码仓库则 `plugins/snake` + `build:plugins`。
+- 「Git 树颜色不对」→ 仅源码仓库：改 `plugins/git-manager/src/git/gitService.ts` 与 `styles.ts`；安装版请新建用户插件补充能力。
 - 「提交历史点文件没 Diff」→ 用 commit 的 patch（`openFromCommit`），不要走工作区 `diff HEAD`。

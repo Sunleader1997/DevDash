@@ -24,6 +24,12 @@ files:
   - "!tsconfig*.json"
   - "!electron.vite.config.ts"
 
+# Pin Electron dist mirror. Default GitHub is often unreachable/slow from CN;
+# cache hits still download SHASUMS256.txt from the same origin for validation,
+# so an unset mirror can hang packaging at "packaging" with 0-byte temp files.
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/
+
 asar: true
 # Plugin main is dynamically imported; keep plugins readable if asar ever
 # interferes with the custom protocol, but start packed.
@@ -35,6 +41,12 @@ asar: true
 extraResources:
   - from: bundled-skills
     to: skills
+  # User-plugin SDK (shims, template, create/build scripts).
+  - from: bundled-plugin-sdk
+    to: plugin-sdk
+  # esbuild-wasm for plugin-sdk/build.mjs (vendored; not shipped via node_modules).
+  - from: node_modules/esbuild-wasm
+    to: plugin-sdk/vendor/esbuild-wasm
   # Unpacked app icon: dock/window load from resourcesPath (not asar), and
   # mac bundle CFBundleIconFile comes from buildResources icon.icns.
   - from: assets/icons/icon.png
@@ -62,9 +74,6 @@ mac:
     - target: dmg
       arch:
         - arm64
-    - target: zip
-      arch:
-        - arm64
   artifactName: ${name}-${version}-mac-${arch}.${ext}
 
 # dmg options are top-level (not under mac)
@@ -75,9 +84,6 @@ win:
   icon: assets/icons/icon.ico
   target:
     - target: nsis
-      arch:
-        - x64
-    - target: zip
       arch:
         - x64
   artifactName: ${name}-${version}-win-${arch}.${ext}

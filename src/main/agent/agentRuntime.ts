@@ -19,6 +19,7 @@ import { classifyTool, denyAllPending, requestPermission, setAllowToolForSession
 import { pluginRegistry } from '../plugin/registry'
 import { buildSkillContext, listSkills } from './skills'
 import { repoRoot } from './repoRoot'
+import { pluginSdkRoot } from './pluginSdk'
 
 /** Prefer full Error.stack (message + frames) so the UI can show/copy the whole failure. */
 function formatError(err: unknown): string {
@@ -66,27 +67,50 @@ function resolveClaudeCliPath(): string | undefined {
   }
 }
 
-const SYSTEM_APPEND = `
-你是 DevDash 插件开发助手。目标：通过新建或修改 plugins/* 下的 npm 插件，交付可被宿主发现与加载的插件应用。
-
-硬约束（来自 AGENTS.md / 项目约定）：
+function buildSystemAppend(): string {
+  const root = repoRoot()
+  const sdk = pluginSdkRoot()
+  const isUserWorkspace = Boolean(app.isPackaged) || root === app.getPath('userData')
+  const modeBlock = isUserWorkspace
+    ? `
+【当前工作区：安装版 / userData】
+- 不要寻找 DevDash 源码仓库。在这里直接开发「用户插件」。
+- 新建：node "${sdk}/create.mjs" <id> [--title "标题"]  → 落到 <workspace>/plugins/<id>/
+- 构建：cd plugins/<id> && node "${sdk}/build.mjs"  → 产出 dist/ui.js + dist/main.js
+- 验收：mcp__devdash__refresh_plugins（新插件/列表）→ mcp__devdash__reload_plugin_ui → dom_snapshot / screenshot
+- 安装版内置插件（如 git-manager）只有 dist，不能改其源码；需要新能力就新建用户插件。
+- 用户插件 SDK 根目录: ${sdk}
+- 工作区根: ${root}
+`
+    : `
+【当前工作区：DevDash 源码仓库】
+- 位置 plugins/<name>/（npm workspace）；改完 npm run build:plugins。
+- 完整验证：npm run typecheck → npm run build:plugins → npx electron-vite build → node scripts/smoke.mjs。
+- 用户插件 SDK（也可用于外置开发）: ${sdk}
+- 工作区根: ${root}
+`
+  return `
+你是 DevDash 插件开发助手。目标：通过新建或修改 npm 插件，交付可被宿主发现与加载的插件应用。
+${modeBlock}
+硬约束：
 - 禁止创建 .worktree、禁止新建功能分支，直接在当前工作目录修改。
 - 插件必须通过 package.json 的 devdash 清单被发现；不要把插件 UI 硬编码进宿主 React 树。
 - 新增 IPC 通道三处同步：清单 devdash.ipc → 插件 main registerIpc → 插件 ui api.ts。
 - 主进程侧 Git/路径参数一律 execFile 数组传参；用户可控 rev/range 必须校验。
-- plugins/*/dist 不进 git；改完插件源码后建议 npm run build:plugins。
-- 完整验证：npm run typecheck → npm run build:plugins → npx electron-vite build → node scripts/smoke.mjs。
+- 插件 dist/ 不作为源码提交。
 
 UI 验收工具（mcp__devdash__*，进程内 MCP）：
-- 改完插件源码并 npm run build:plugins 后，调用 mcp__devdash__reload_plugin_ui 在当前应用热重载插件 UI（新建插件/新 IPC 仍需重启）。
+- 新建插件或改了插件集合 → mcp__devdash__refresh_plugins（动态重发现，无需重启）。
+- 仅改已有插件 UI → 构建后 mcp__devdash__reload_plugin_ui 热重载。
 - 用 mcp__devdash__dom_snapshot 看结构，用 mcp__devdash__screenshot 看视觉效果。
 - mcp__devdash__cdp_info 查看 CDP；CDP 在设置里开关，改完需重启，可用外部 Playwright connectOverCDP 操作真实 DOM。
 
 插件开发模板要点：
-- 位置 plugins/<name>/，package.json 含 devdash: { id, title, icon, ui, main, order, ipc[] }
-- vite 构建 ui.js / main.js；react alias 到宿主 shim（精确正则 /^react$/）。
-- UI 默认导出 { id, title, icon?, App }。
+- package.json 含 devdash: { id, title, icon, ui, main, order, ipc[] }；id 为 ^[a-z0-9][a-z0-9-]*$。
+- UI 默认导出 { id, title, icon?, App }；react 由宿主注入（SDK shim / vite alias 到 host-react）。
+- 用户插件构建用 node <sdk>/build.mjs（esbuild-wasm，无需本机安装 vite）。
 `
+}
 
 type ActiveSession = {
   taskId: string
@@ -353,28 +377,46 @@ function emitMessage(msg: ChatMessage): Promise<void> {
 
 function buildPluginContext(pluginRefs: string[]): string {
   if (!pluginRefs.length) return ''
+  const root = repoRoot()
+  const sdk = pluginSdkRoot()
+  const userPlugins = path.join(app.getPath('userData'), 'plugins')
   return (
     `\n\n【插件上下文】\n` +
     pluginRefs
       .map((id) => {
         const meta = pluginRegistry.byId(id)
         const title = meta?.title ?? id
-        const pkg = meta?.packageName ?? `plugins/${id}`
-        const root = (() => {
-          if (!meta?.rootDir) return `plugins/${id}`
-          const rel = path.relative(repoRoot(), meta.rootDir)
-          // Packaged rootDir lives under app.asar (outside userData) — show a stable hint.
-          if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return `plugins/${id}`
-          return rel
-        })()
-        return [
-          `- id: ${id}`,
-          `  title: ${title}`,
-          `  package: ${pkg}`,
-          `  路径: ${root}`,
-          `  可读入口: ${root}/package.json (devdash 清单), ${root}/src/`,
-          `  任务指引: 可新建或修改该插件；改完需 npm run build:plugins；IPC 三处同步（清单 devdash.ipc / main registerIpc / ui api.ts）。`
-        ].join('\n')
+        const pkg = meta?.packageName ?? id
+        const lines = [`- id: ${id}`, `  title: ${title}`, `  package: ${pkg}`]
+        const rootDir = meta?.rootDir
+        if (!rootDir) {
+          lines.push(`  路径: 未知`)
+          lines.push(`  任务指引: 可用 node "${sdk}/create.mjs" 新建用户插件到 ${root}/plugins/<id>。`)
+          return lines.join('\n')
+        }
+        const relWorkspace = path.relative(root, rootDir)
+        const relUser = path.relative(userPlugins, rootDir)
+        const under = (rel: string): boolean => Boolean(rel) && !rel.startsWith('..') && !path.isAbsolute(rel)
+        if (under(relWorkspace)) {
+          lines.push(`  路径: ${relWorkspace}`)
+          lines.push(`  可读入口: ${relWorkspace}/package.json (devdash 清单), ${relWorkspace}/src/`)
+          lines.push(
+            `  任务指引: 可修改该插件源码；构建后 refresh_plugins / reload_plugin_ui；IPC 三处同步（清单 devdash.ipc / main registerIpc / ui api.ts）。`
+          )
+        } else if (under(relUser)) {
+          const abs = rootDir.replace(/\\/g, '/')
+          lines.push(`  路径: ${abs}（用户插件，可写）`)
+          lines.push(`  可读入口: ${abs}/package.json, ${abs}/src/`)
+          lines.push(
+            `  任务指引: 可修改该用户插件；构建 node "${sdk}/build.mjs"；再 mcp__devdash__refresh_plugins。`
+          )
+        } else {
+          lines.push(`  路径: 安装包内（asar），本机无源码`)
+          lines.push(
+            `  任务指引: 不要试图修改内置插件源码。需要新能力请用 node "${sdk}/create.mjs" 新建用户插件到 ${root}/plugins/<id>。`
+          )
+        }
+        return lines.join('\n')
       })
       .join('\n')
   )
@@ -766,7 +808,7 @@ async function startSession(
       systemPrompt: {
         type: 'preset',
         preset: 'claude_code',
-        append: SYSTEM_APPEND
+        append: buildSystemAppend()
       },
       ...(thinking ? { thinking } : {}),
       ...(betas.length ? { betas } : {}),
