@@ -60,7 +60,7 @@ extraResources:
   # Native Claude Code CLI for @anthropic-ai/claude-agent-sdk.
   # Optional platform packages are not collected from nested optionalDependencies;
   # binary cannot be spawned from inside asar. Stage the right arch via
-  # scripts/stage-claude-bin.mjs before pack (pack:win / pack:mac do this).
+  # scripts/stage-claude-bin.mjs before pack (pack:win / pack:mac / pack:linux do this).
   - from: build/claude-bin
     to: claude
 
@@ -99,3 +99,33 @@ nsis:
   # NSIS-only icon fields (not valid under win)
   installerIcon: assets/icons/icon.ico
   uninstallerIcon: assets/icons/icon.ico
+
+# Linux x86_64 (x64). AppImage is the portable default; deb for Debian/Ubuntu.
+# iconset/ holds size-named PNGs (16..1024) which electron-builder picks up.
+linux:
+  icon: assets/icons/iconset
+  category: Development
+  synopsis: Plugin-based developer dashboard
+  syncDesktopName: true
+  # deb/rpm require a maintainer with an email; package.json author is bare.
+  maintainer: DevDash <devdash@users.noreply.github.com>
+  desktop:
+    entry:
+      Name: DevDash
+      Comment: Plugin-based cross-platform developer dashboard
+      Categories: Development;Utility;
+      StartupWMClass: DevDash
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+  artifactName: ${name}-${version}-linux-${arch}.${ext}
+
+appImage:
+  artifactName: ${name}-${version}-linux-${arch}.${ext}
+
+deb:
+  artifactName: ${name}-${version}-linux-${arch}.${ext}

@@ -5,6 +5,7 @@
   "author": "DevDash",
   "description": "Plugin-based cross-platform developer dashboard (Electron)",
   "main": "out/main/index.js",
+  "desktopName": "DevDash.desktop",
   "workspaces": [
     "plugins/*"
   ],
@@ -19,7 +20,9 @@
     "pack:win:dir": "export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ && export ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ && npm run build && node scripts/stage-claude-bin.mjs win32 x64 && electron-builder --win dir",
     "postinstall": "npm run build:plugins && npm run ensure:electron",
     "pack:mac": "export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ && export ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ && npm run build && node scripts/stage-claude-bin.mjs darwin arm64 && electron-builder --mac",
-    "pack:mac:dir": "export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ && export ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ && npm run build && node scripts/stage-claude-bin.mjs darwin arm64 && electron-builder --mac dir"
+    "pack:mac:dir": "export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ && export ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ && npm run build && node scripts/stage-claude-bin.mjs darwin arm64 && electron-builder --mac dir",
+    "pack:linux": "export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ && export ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ && npm run build && node scripts/stage-claude-bin.mjs linux x64 && electron-builder --linux",
+    "pack:linux:dir": "export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ && export ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ && npm run build && node scripts/stage-claude-bin.mjs linux x64 && electron-builder --linux dir"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.306",
@@ -29,6 +32,7 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
+    "@anthropic-ai/claude-agent-sdk-linux-x64": "^0.3.308",
     "@anthropic-ai/claude-agent-sdk-win32-x64": "^0.3.308",
     "@types/node": "^22.13.10",
     "@types/react": "^18.3.18",

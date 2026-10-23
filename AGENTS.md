@@ -14,6 +14,7 @@ Electron 插件化开发面板：React 18 + TypeScript + electron-vite。npm wor
 | `npm run dev` | electron-vite 开发 |
 | `node scripts/smoke.mjs` | 插件发现 + `devdash.ipc` + `dist/main.js` 存在 + porcelain 解析 |
 | `npm run ensure:electron` | 修复 Electron “uninstall”（补 `path.txt`） |
+| `npm run pack:linux` | 构建 Linux x64 安装包（AppImage + deb） |
 
 改完插件源码后：先 `build:plugins` 再起 Electron，否则加载的是旧 bundle。完整验证顺序：`typecheck` → `build:plugins` → `npx electron-vite build` → `node scripts/smoke.mjs`。
 
