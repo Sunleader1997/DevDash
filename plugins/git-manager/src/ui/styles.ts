@@ -55,9 +55,12 @@ export const pluginCss = `
   align-items: center;
   gap: 6px;
   width: 100%;
+  min-width: 0;
   padding: 6px 8px;
   border-radius: 8px;
   text-align: left;
+  flex-wrap: nowrap;
+  overflow: hidden;
 }
 .gm-row:hover { background: var(--bg-hover, rgba(0,0,0,0.05)); }
 .gm-row.active {
@@ -65,6 +68,32 @@ export const pluginCss = `
   color: var(--accent, #0071e3);
 }
 .gm-row .muted { color: var(--fg-secondary, #6e6e73); font-size: 11px; }
+.gm-proj-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent 100%);
+}
+.gm-proj-name {
+  flex: 0 0 auto;
+  max-width: 55%;
+  overflow: hidden;
+  white-space: nowrap;
+  font-weight: 560;
+}
+.gm-proj-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--fg-secondary, #6e6e73);
+  font-size: 11px;
+}
 .gm-tree-gutter {
   width: 18px;
   flex-shrink: 0;
@@ -252,6 +281,14 @@ export const pluginCss = `
 }
 .gm-commit-row:hover {
   background: var(--bg-hover);
+}
+.gm-commit-row.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.gm-commit-row input[type='checkbox'] {
+  flex-shrink: 0;
+  cursor: pointer;
 }
 .gm-commit-dir {
   color: var(--fg-tertiary);
@@ -539,18 +576,53 @@ export const pluginCss = `
   text-align: left;
   padding: 8px 12px;
   border-bottom: 1px solid var(--separator);
+  cursor: pointer;
 }
 .gm-commit:hover { background: var(--bg-hover); }
 .gm-commit.active { background: var(--accent-soft); }
+.gm-commit-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
 .gm-commit .subject {
+  flex: 1;
+  min-width: 0;
   font-weight: 560;
   font-size: 12.5px;
   letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .gm-commit .meta {
   color: var(--fg-secondary);
   font-size: 11px;
   margin-top: 2px;
+}
+.gm-commit-copy {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-secondary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.gm-commit:hover .gm-commit-copy,
+.gm-commit-copy:focus-visible {
+  opacity: 1;
+}
+.gm-commit-copy:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
 }
 .gm-dropdown {
   position: absolute;

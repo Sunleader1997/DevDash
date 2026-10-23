@@ -207,6 +207,19 @@ function IconMenuPin(): JSX.Element {
   )
 }
 
+function IconCopy(): JSX.Element {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden>
+      <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5" fill="none" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  )
+}
+
+async function copyText(text: string): Promise<void> {
+  await navigator.clipboard.writeText(text)
+}
+
 function IconMenuFolder(): JSX.Element {
   return (
     <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden>
@@ -475,12 +488,14 @@ function GitManagerApp(): JSX.Element {
     }
   }
 
-  const pinProject = (id: string) => {
+  const togglePinProject = (id: string) => {
     setProjects((prev) => {
       const target = prev.find((p) => p.id === id)
       if (!target) return prev
       const rest = prev.filter((p) => p.id !== id)
-      return [{ ...target, pinned: true }, ...rest]
+      return [{ ...target, pinned: !target.pinned }, ...rest].sort(
+        (a, b) => Number(!!b.pinned) - Number(!!a.pinned)
+      )
     })
     setProjMenu(null)
   }
@@ -545,7 +560,14 @@ function GitManagerApp(): JSX.Element {
                 >
                   <button
                     className="gm-row"
-                    style={{ width: 'auto', flex: 1, padding: 0, background: 'transparent' }}
+                    style={{
+                      width: 'auto',
+                      flex: 1,
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      padding: 0,
+                      background: 'transparent'
+                    }}
                     onClick={() => {
                       if (renamingId === p.id) return
                       setExpanded((prev) => ({ ...prev, [p.id]: !open }))
@@ -574,13 +596,10 @@ function GitManagerApp(): JSX.Element {
                         }}
                       />
                     ) : (
-                      <>
-                        <span style={{ fontWeight: 560 }}>{p.name}</span>
-                        {p.pinned && <span title="已置顶" style={{ opacity: 0.7 }}>📌</span>}
-                        <span className="muted" title={p.path}>
-                          {p.path.length > 28 ? `…${p.path.slice(-28)}` : p.path}
-                        </span>
-                      </>
+                      <span className="gm-proj-line" title={`${p.name} · ${p.path}`}>
+                        <span className="gm-proj-name">{p.name}</span>
+                        <span className="gm-proj-path">{p.path}</span>
+                      </span>
                     )}
                   </button>
                 </div>
@@ -671,8 +690,8 @@ function GitManagerApp(): JSX.Element {
             <MenuItem icon={<IconMenuRename />} onClick={() => startRename(projMenu.id)}>
               重命名
             </MenuItem>
-            <MenuItem icon={<IconMenuPin />} onClick={() => pinProject(projMenu.id)}>
-              置顶
+            <MenuItem icon={<IconMenuPin />} onClick={() => togglePinProject(projMenu.id)}>
+              {projects.find((x) => x.id === projMenu.id)?.pinned ? '取消置顶' : '置顶'}
             </MenuItem>
             <MenuItem
               icon={<IconMenuFolder />}
@@ -1738,15 +1757,21 @@ function RepoWorkspace({
                       const name = f.split('/').pop() ?? f
                       const dir = f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : ''
                       return (
-                        <label key={f} className="gm-commit-row" title={f}>
+                        <div
+                          key={f}
+                          className={cx('gm-commit-row', selectedFile === f && 'active')}
+                          title={f}
+                          onClick={() => void openFile(f)}
+                        >
                           <input
                             type="checkbox"
                             checked={commitChecked.has(f)}
                             onChange={() => toggleCommit(f)}
+                            onClick={(e) => e.stopPropagation()}
                           />
                           <span className={cx('gm-file-name', st ? statusClass(st) : '')}>{name}</span>
                           {dir && <span className="gm-commit-dir">{dir}</span>}
-                        </label>
+                        </div>
                       )
                     })}
                   </div>
@@ -1838,17 +1863,42 @@ function RepoWorkspace({
               <div className="gm-panel-header">提交历史</div>
               <div className="gm-scroll" style={{ maxHeight: sizes.historyHeight }}>
                 {commits.map((c) => (
-                  <button
+                  <div
                     key={c.hash}
                     className={cx('gm-commit', selectedCommit?.hash === c.hash && 'active')}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => void openCommit(c)}
+                    onKeyDown={(e) => {
+                      const key = (e as { key?: string }).key
+                      if (key === 'Enter' || key === ' ') {
+                        e.preventDefault?.()
+                        void openCommit(c)
+                      }
+                    }}
                     title="单击选中并加载变更文件"
                   >
-                    <div className="subject">{c.subject}</div>
+                    <div className="gm-commit-top">
+                      <div className="subject">{c.subject}</div>
+                      <button
+                        type="button"
+                        className="gm-commit-copy"
+                        title="复制 commit message"
+                        aria-label="复制 commit message"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void copyText(c.subject)
+                            .then(() => onToast('已复制 commit message'))
+                            .catch((err: Error) => onToast(err.message, true))
+                        }}
+                      >
+                        <IconCopy />
+                      </button>
+                    </div>
                     <div className="meta">
                       {c.shortHash} · {c.authorName} · {formatTime(c.date)}
                     </div>
-                  </button>
+                  </div>
                 ))}
                 {commits.length === 0 && <div className="gm-empty">暂无提交</div>}
               </div>
