@@ -15,6 +15,7 @@ import {
   DEFAULT_TEXT_WHITELIST,
   setUserDataDir as setSettingsUserDataDir
 } from './store/settingsStore'
+import { repoWatcherRegistry } from './git/repoWatcher'
 
 export interface PluginMainContext {
   appPath: string
@@ -114,8 +115,19 @@ export default {
       settingsStore.save((partial as { textWhitelist?: string[]; maxFileSizeMb?: number }) ?? {})
     )
     r('settings:add-whitelist-ext', async (ext) => settingsStore.addWhitelistExt(ext as string))
+
+    r('git:watch:wait', async (repoPath, timeoutMs) =>
+      repoWatcherRegistry.wait(
+        repoPath as string,
+        typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) ? timeoutMs : undefined
+      )
+    )
+    r('git:watch:stop', async (repoPath) => {
+      repoWatcherRegistry.stop(repoPath as string)
+    })
   },
   async deactivate(): Promise<void> {
+    repoWatcherRegistry.stopAll()
     /* handlers remain registered for process lifetime */
   }
 }

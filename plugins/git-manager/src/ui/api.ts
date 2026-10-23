@@ -61,6 +61,9 @@ export const api = {
     invokeDomain<DiffFileInfo[]>('git:commit-files', repoPath, commitHash),
   fileAtRef: (repoPath: string, ref: string, filePath: string) =>
     invokeDomain<string | null>('git:file-at-ref', repoPath, ref, filePath),
+  watchWait: (repoPath: string, timeoutMs?: number) =>
+    invokeDomain<{ changed: boolean }>('git:watch:wait', repoPath, timeoutMs),
+  watchStop: (repoPath: string) => invokeDomain<void>('git:watch:stop', repoPath),
   gitlabDefaults: () => invokeDomain<GitLabDefaults>('gitlab:defaults:get'),
   saveGitlabDefaults: (s: Partial<GitLabDefaults>) =>
     invokeDomain<GitLabDefaults>('gitlab:defaults:save', s),

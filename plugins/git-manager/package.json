@@ -38,6 +38,8 @@
       "git:diff-file-patch",
       "git:commit-files",
       "git:file-at-ref",
+      "git:watch:wait",
+      "git:watch:stop",
       "gitlab:defaults:get",
       "gitlab:defaults:save",
       "gitlab:normalize-project",

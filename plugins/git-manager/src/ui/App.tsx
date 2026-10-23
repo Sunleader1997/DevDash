@@ -1,5 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from './host-react'
 import { api } from './api'
+import {
+  REPO_CACHE_KEY,
+  discoveryEquals,
+  parseRepoDiscoveryCache,
+  serializeRepoDiscoveryCache
+} from './repoCache'
 import type {
   BranchInfo,
   CommitInfo,
@@ -331,7 +337,6 @@ function GitManagerApp(): JSX.Element {
     return all
   })
   const [reposByProject, setReposByProject] = useState<Record<string, RepoInfo[]>>({})
-  const [repoListCache, setRepoListCache] = useState<Record<string, string[]>>({})
   const [activeRepo, setActiveRepo] = useState<RepoInfo | null>(null)
   const [activeProject, setActiveProject] = useState<ProjectRecord | null>(null)
   const [toast, setToast] = useState<{ text: string; error?: boolean } | null>(null)
@@ -381,35 +386,89 @@ function GitManagerApp(): JSX.Element {
     void scanProject(rec)
   }
 
-  const scanProject = async (project: ProjectRecord) => {
-    try {
-      const paths = await api.tasks(`scan-${project.id}`, `扫描 ${project.name}`, () =>
-        api.findRepos(project.path, 3)
-      )
-      setRepoListCache((prev) => ({ ...prev, [project.id]: paths }))
-      const infos = await Promise.all(
-        paths.map(async (r) => {
+  type ScanHandle = { cancelled: boolean; done: Promise<void> }
+  const scans = useRef<Map<string, ScanHandle>>(new Map())
+  const pendingClears = useRef<Map<string, symbol>>(new Map())
+
+  /** Hydrate from project store first, then rescan and overwrite when the tree changed. */
+  const scanProject = (project: ProjectRecord): Promise<void> => {
+    const prev = scans.current.get(project.id)
+    if (prev) prev.cancelled = true
+    // A new scan owns cache writes; drop any pending clear from removeProject.
+    // Skipping hydrate here makes "remove → re-add" a cold scan (T3).
+    const afterRemove = pendingClears.current.delete(project.id)
+
+    const handle: ScanHandle = { cancelled: false, done: Promise.resolve() }
+    handle.done = (async () => {
+      const isStale = () => handle.cancelled
+      let cached: RepoInfo[] | null = null
+      try {
+        if (!afterRemove) {
           try {
-            return await api.repoInfo(r)
+            const state = await api.storeRead(project.path)
+            cached = parseRepoDiscoveryCache(state)
           } catch {
-            return { path: r, name: r.replace(/\\/g, '/').split('/').pop() ?? r, branch: null, dirtyCount: 0 }
+            cached = null
           }
-        })
-      )
-      setReposByProject((prev) => ({ ...prev, [project.id]: infos }))
-    } catch (e) {
-      showToast((e as Error).message, true)
-    }
+        }
+        if (cached && !isStale()) {
+          const snapshot = cached
+          setReposByProject((prev) => ({ ...prev, [project.id]: snapshot }))
+        }
+
+        const discover = () => api.findRepos(project.path, 3)
+        const paths = cached
+          ? await discover()
+          : await api.tasks(`scan-${project.id}`, `扫描 ${project.name}`, discover)
+        const infos = await Promise.all(
+          paths.map(async (r) => {
+            try {
+              return await api.repoInfo(r)
+            } catch {
+              return { path: r, name: r.replace(/\\/g, '/').split('/').pop() ?? r, branch: null, dirtyCount: 0 }
+            }
+          })
+        )
+
+        if (isStale()) return
+        if (!cached || !discoveryEquals(cached, infos)) {
+          setReposByProject((prev) => ({ ...prev, [project.id]: infos }))
+          if (isStale()) return
+          await api
+            .storePatch(project.path, { [REPO_CACHE_KEY]: serializeRepoDiscoveryCache(infos) })
+            .catch(() => undefined)
+        }
+      } catch (e) {
+        if (!cached && !isStale()) showToast((e as Error).message, true)
+      } finally {
+        if (scans.current.get(project.id) === handle) scans.current.delete(project.id)
+      }
+    })()
+    scans.current.set(project.id, handle)
+    return handle.done
   }
 
   const removeProject = (id: string) => {
     const project = projects.find((p) => p.id === id)
+    const inflight = scans.current.get(id)
+    if (inflight) inflight.cancelled = true
+    const token = Symbol('clear-git-repos')
+    pendingClears.current.set(id, token)
     setProjects((prev) => prev.filter((p) => p.id !== id))
     setReposByProject((prev) => {
       const next = { ...prev }
       delete next[id]
       return next
     })
+    if (project) {
+      void (async () => {
+        await inflight?.done
+        // Skip when a replacement scan took ownership (token overwritten/deleted).
+        if (pendingClears.current.get(id) !== token) return
+        pendingClears.current.delete(id)
+        await api.storePatch(project.path, { [REPO_CACHE_KEY]: null }).catch(() => undefined)
+      })()
+    }
     if (project && activeRepo && activeRepo.path.startsWith(project.path)) {
       setActiveRepo(null)
       setActiveProject(null)
@@ -1203,37 +1262,55 @@ function RepoWorkspace({
 
   const refreshBranches = async () => {
     try {
-      setBranches(await api.branches(repo.path))
+      const list = await api.branches(repo.path)
+      if (!aliveRef.current) return
+      setBranches(list)
     } catch (e) {
-      onToast((e as Error).message, true)
+      if (aliveRef.current) onToast((e as Error).message, true)
     }
   }
 
-  const refreshStatus = async () => {
+  const aliveRef = useRef(true)
+  useEffect(() => {
+    aliveRef.current = true
+    return () => {
+      aliveRef.current = false
+    }
+  }, [])
+
+  const refreshStatus = async (opts?: { silent?: boolean }) => {
     try {
-      const list = await api.tasks(`status-${repo.path}`, '刷新状态', () => api.status(repo.path))
+      const list = opts?.silent
+        ? await api.status(repo.path)
+        : await api.tasks(`status-${repo.path}`, '刷新状态', () => api.status(repo.path))
+      const filesList = await api.listFiles(repo.path)
+      const info = await api.repoInfo(repo.path)
+      if (!aliveRef.current) return
       setStatus(list)
-      setFiles(await api.listFiles(repo.path))
-      onChanged(await api.repoInfo(repo.path))
+      setFiles(filesList)
+      onChanged(info)
     } catch (e) {
-      onToast((e as Error).message, true)
+      if (aliveRef.current) onToast((e as Error).message, true)
     }
   }
 
   const refreshLog = async () => {
     try {
-      setCommits(await api.log(repo.path, 50, 0))
+      const list = await api.log(repo.path, 50, 0)
+      if (!aliveRef.current) return
+      setCommits(list)
     } catch (e) {
-      onToast((e as Error).message, true)
+      if (aliveRef.current) onToast((e as Error).message, true)
     }
   }
 
   const refreshUnpushed = async () => {
     try {
       const list = await api.unpushed(repo.path)
+      if (!aliveRef.current) return
       setUnpushedCount(list.length)
     } catch {
-      setUnpushedCount(0)
+      if (aliveRef.current) setUnpushedCount(0)
     }
   }
 
@@ -1245,6 +1322,40 @@ function RepoWorkspace({
         setReady(true)
       }
     })()
+  }, [repo.path])
+
+  // Long-poll fs watcher: refresh panels when worktree or .git changes.
+  useEffect(() => {
+    let cancelled = false
+    const loop = async () => {
+      while (!cancelled) {
+        let changed = false
+        try {
+          const r = await api.watchWait(repo.path)
+          changed = r.changed && !cancelled
+        } catch {
+          // Watcher unavailable (e.g. path gone) — back off and retry.
+          if (cancelled) return
+          await new Promise((r) => window.setTimeout(r, 5000))
+          continue
+        }
+        if (cancelled) return
+        if (changed) {
+          await Promise.all([
+            refreshStatus({ silent: true }),
+            refreshBranches(),
+            refreshLog(),
+            refreshUnpushed()
+          ])
+        }
+      }
+    }
+    void loop()
+    return () => {
+      cancelled = true
+      void api.watchStop(repo.path).catch(() => undefined)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repo.path])
 
   const loadPatch = async (filePath: string, force = false): Promise<string> => {
