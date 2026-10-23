@@ -7,31 +7,60 @@ export type ModelAuthMode = 'api-key' | 'subscription'
 /** Wire protocol for the endpoint. Claude Agent SDK speaks Anthropic Messages. */
 export type ApiProtocol = 'anthropic-messages'
 
-export type ModelPreset = {
+/**
+ * One selectable model under a provider.
+ * `id` is the stable handle used as `task.modelId`.
+ */
+export type ModelEntry = {
   id: string
+  /** Model id sent to Claude Agent SDK `options.model` */
+  model: string
   /** Display name */
   label: string
+  /** Input context length in tokens; default 1_000_000 (1M) */
+  contextInputTokens: number
+  /** Max output tokens; default 64000 */
+  contextOutputTokens: number
+}
+
+/** Connection + credentials + the models mounted under it. */
+export type ProviderConfig = {
+  id: string
+  /** Display name, e.g. "Anthropic 官方" / "MiniMax" */
+  label: string
   provider: ModelProvider
-  /** Interface protocol */
   protocol: ApiProtocol
-  /** Model id passed to Claude Agent SDK `options.model` */
-  model: string
   /** API endpoint base, e.g. https://api.anthropic.com */
   baseUrl?: string
   /** API key */
   apiKey?: string
   /** Anthropic auth mode; custom always uses api key */
   authMode?: ModelAuthMode
-  /** Input context length in tokens; default 1_000_000 (1M) */
-  contextInputTokens?: number
-  /** Max output tokens; default 64000 */
-  contextOutputTokens?: number
+  models: ModelEntry[]
   /** Last connectivity test result */
   lastTest?: {
     ok: boolean
     message: string
     at: number
   }
+}
+
+/**
+ * Flattened model for runtime (env build / setModel / context limits).
+ * Produced by resolving a ModelEntry against its ProviderConfig.
+ */
+export type ResolvedModel = {
+  id: string
+  label: string
+  model: string
+  contextInputTokens: number
+  contextOutputTokens: number
+  provider: ModelProvider
+  protocol: ApiProtocol
+  baseUrl?: string
+  apiKey?: string
+  authMode?: ModelAuthMode
+  providerId: string
 }
 
 export type UiDevSettings = {
@@ -42,8 +71,9 @@ export type UiDevSettings = {
 }
 
 export type AgentSettings = {
-  presets: ModelPreset[]
-  activePresetId: string
+  providers: ProviderConfig[]
+  /** Default ModelEntry.id */
+  activeModelId: string
   uiDev?: UiDevSettings
 }
 
@@ -117,6 +147,17 @@ export type ConnectivityResult = {
   message: string
   latencyMs?: number
   models?: Array<{ id: string; label: string }>
+}
+
+/** Credentials + endpoint only — enough to list models / probe connectivity. */
+export type ProviderConnection = {
+  provider?: ModelProvider
+  protocol?: ApiProtocol
+  baseUrl?: string
+  apiKey?: string
+  authMode?: ModelAuthMode
+  /** Optional model id for a real chat probe */
+  model?: string
 }
 
 export type AgentEvent =

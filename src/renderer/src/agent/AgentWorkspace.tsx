@@ -315,8 +315,14 @@ export function AgentWorkspace({
 
   const activeModel = useMemo(() => {
     if (!settings) return null
-    const id = task?.modelId ?? settings.activePresetId
-    return settings.presets.find((p) => p.id === id) ?? settings.presets[0] ?? null
+    const id = task?.modelId ?? settings.activeModelId
+    const all = (settings.providers ?? []).flatMap((p) =>
+      (p.models ?? []).map((m) => ({
+        ...m,
+        providerLabel: p.label
+      }))
+    )
+    return all.find((m) => m.id === id) ?? all[0] ?? null
   }, [settings, task])
 
   const filteredPlugins = useMemo(() => {
@@ -418,7 +424,7 @@ export function AgentWorkspace({
   const doSend = async (): Promise<void> => {
     const text = draft.trim()
     if (!text || sending) return
-    if (!settings?.presets?.length) {
+    if (!settings?.providers?.some((p) => p.models?.length)) {
       onOpenSettings()
       return
     }
@@ -670,12 +676,15 @@ export function AgentWorkspace({
                 }}
                 title="切换对话模型（下一动作生效）"
               >
-                {(settings?.presets ?? []).map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label || p.model}
-                  </option>
-                ))}
-                {(!settings || settings.presets.length === 0) && (
+                {(settings?.providers ?? []).flatMap((p) =>
+                  (p.models ?? []).map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {p.label ? `${p.label} · ` : ''}
+                      {m.label || m.model}
+                    </option>
+                  ))
+                )}
+                {(!settings || !settings.providers?.some((p) => p.models?.length)) && (
                   <option value="">未配置模型</option>
                 )}
               </select>

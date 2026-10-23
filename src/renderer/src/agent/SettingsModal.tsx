@@ -1,25 +1,45 @@
-import { useEffect, useState } from 'react'
-import type { AgentSettings, ConnectivityResult, ModelPreset } from './types'
+import { useEffect, useMemo, useState } from 'react'
+import type {
+  AgentSettings,
+  ConnectivityResult,
+  ModelEntry,
+  ProviderConfig
+} from './types'
 import { getSettings, listModels, saveSettings, testModel } from './agentApi'
 
 const DEFAULT_CTX_IN = 1_000_000
 const DEFAULT_CTX_OUT = 64_000
 
-type SettingsSection = { kind: 'preset'; id: string } | { kind: 'uiDev' }
+type SettingsSection = { kind: 'provider'; id: string } | { kind: 'uiDev' }
 
-function emptyPreset(): ModelPreset {
+function emptyModel(fallbackLabel?: string): ModelEntry {
   return {
-    id: '',
-    label: '',
-    provider: 'custom',
-    protocol: 'anthropic-messages',
+    id: crypto.randomUUID(),
     model: '',
-    baseUrl: 'https://api.anthropic.com',
-    apiKey: '',
-    authMode: 'api-key',
+    label: fallbackLabel ?? '',
     contextInputTokens: DEFAULT_CTX_IN,
     contextOutputTokens: DEFAULT_CTX_OUT
   }
+}
+
+function emptyProvider(): ProviderConfig {
+  return {
+    id: crypto.randomUUID(),
+    label: '',
+    provider: 'custom',
+    protocol: 'anthropic-messages',
+    baseUrl: 'https://api.anthropic.com',
+    apiKey: '',
+    authMode: 'api-key',
+    models: []
+  }
+}
+
+/** Flatten every model under every provider for the default-model picker. */
+function allModels(settings: AgentSettings): Array<ModelEntry & { providerLabel: string }> {
+  return (settings.providers ?? []).flatMap((p) =>
+    (p.models ?? []).map((m) => ({ ...m, providerLabel: p.label }))
+  )
 }
 
 export function SettingsModal({
@@ -37,120 +57,205 @@ export function SettingsModal({
   const [settings, setSettings] = useState<AgentSettings | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const [testingId, setTestingId] = useState<string | null>(null)
-  const [listingId, setListingId] = useState<string | null>(null)
-  const [testResults, setTestResults] = useState<Record<string, ConnectivityResult>>({})
+  const [testing, setTesting] = useState<string | null>(null)
+  const [listing, setListing] = useState<string | null>(null)
+  const [testResult, setTestResult] = useState<ConnectivityResult | null>(null)
+  const [pulled, setPulled] = useState<Array<{ id: string; label: string; disabled?: boolean }> | null>(
+    null
+  )
   const [section, setSection] = useState<SettingsSection>({ kind: 'uiDev' })
 
   useEffect(() => {
     if (!open) return
     setError(null)
+    setTestResult(null)
+    setPulled(null)
     getSettings()
       .then((s) => {
         setSettings(s)
         if (focus === 'uiDev') {
           setSection({ kind: 'uiDev' })
         } else {
-          const first = s.presets[0]
-          setSection(first ? { kind: 'preset', id: first.id } : { kind: 'uiDev' })
+          const first = s.providers[0]
+          setSection(first ? { kind: 'provider', id: first.id } : { kind: 'uiDev' })
         }
       })
       .catch((e: Error) => setError(e.message))
   }, [open, focus])
 
+  const activeProvider =
+    settings && section.kind === 'provider'
+      ? settings.providers.find((p) => p.id === section.id)
+      : undefined
+
+  // Drop stale results when the user switches provider / pane.
+  useEffect(() => {
+    setTestResult(null)
+    setPulled(null)
+  }, [section.kind, section.kind === 'provider' ? section.id : 'uiDev'])
+
+  const modelCount = useMemo(
+    () => (settings ? allModels(settings).length : 0),
+    [settings]
+  )
+
   if (!open || !settings) return null
 
-  const updatePreset = (id: string, patch: Partial<ModelPreset>): void => {
+  const updateProvider = (id: string, patch: Partial<ProviderConfig>): void => {
     setSettings((s) =>
       s
         ? {
             ...s,
-            presets: s.presets.map((p) => (p.id === id ? { ...p, ...patch } : p))
+            providers: s.providers.map((p) => (p.id === id ? { ...p, ...patch } : p))
           }
         : s
     )
   }
 
-  const addPreset = (): void => {
-    if (!settings) return
-    const p = {
-      ...emptyPreset(),
-      id: crypto.randomUUID(),
-      label: `模型 ${settings.presets.length + 1}`
-    }
-    setSettings({ ...settings, presets: [...settings.presets, p], activePresetId: p.id })
-    setSection({ kind: 'preset', id: p.id })
+  const updateModel = (
+    providerId: string,
+    modelId: string,
+    patch: Partial<ModelEntry>
+  ): void => {
+    setSettings((s) =>
+      s
+        ? {
+            ...s,
+            providers: s.providers.map((p) =>
+              p.id === providerId
+                ? {
+                    ...p,
+                    models: p.models.map((m) => (m.id === modelId ? { ...m, ...patch } : m))
+                  }
+                : p
+            )
+          }
+        : s
+    )
   }
 
-  const removePreset = (id: string): void => {
+  const addProvider = (): void => {
     if (!settings) return
-    const presets = settings.presets.filter((p) => p.id !== id)
-    if (presets.length === 0) return
-    const nextActive = settings.activePresetId === id ? presets[0].id : settings.activePresetId
-    setSettings({ ...settings, presets, activePresetId: nextActive })
-    if (section.kind === 'preset' && section.id === id) {
-      setSection({ kind: 'preset', id: presets[0].id })
+    const p = emptyProvider()
+    p.label = `供应商 ${settings.providers.length + 1}`
+    setSettings({ ...settings, providers: [...settings.providers, p] })
+    setSection({ kind: 'provider', id: p.id })
+  }
+
+  const removeProvider = (id: string): void => {
+    if (!settings) return
+    const providers = settings.providers.filter((p) => p.id !== id)
+    if (providers.length === 0) return
+    const remaining = providers.flatMap((p) => p.models)
+    let activeModelId = settings.activeModelId
+    if (!remaining.some((m) => m.id === activeModelId)) {
+      activeModelId = remaining[0]?.id ?? activeModelId
+    }
+    setSettings({ ...settings, providers, activeModelId })
+    if (section.kind === 'provider' && section.id === id) {
+      setSection({ kind: 'provider', id: providers[0].id })
     }
   }
 
-  const runTest = async (p: ModelPreset): Promise<void> => {
-    const key = p.id || p.label || 'draft'
-    setTestingId(key)
+  const addModel = (providerId: string, partial?: Partial<ModelEntry>): void => {
+    if (!settings) return
+    const provider = settings.providers.find((p) => p.id === providerId)
+    if (!provider) return
+    const entry = {
+      ...emptyModel(),
+      ...partial
+    }
+    if (!entry.label) entry.label = entry.model || '新模型'
+    if (!entry.model) entry.model = 'claude-sonnet-4-5'
+    setSettings((s) => {
+      if (!s) return s
+      const providers = s.providers.map((p) =>
+        p.id === providerId ? { ...p, models: [...p.models, entry] } : p
+      )
+      const activeModelId =
+        s.providers.flatMap((p) => p.models).length === 0 ? entry.id : s.activeModelId
+      return { ...s, providers, activeModelId }
+    })
+  }
+
+  const removeModel = (providerId: string, modelId: string): void => {
+    if (!settings) return
+    const providers = settings.providers.map((p) =>
+      p.id === providerId ? { ...p, models: p.models.filter((m) => m.id !== modelId) } : p
+    )
+    const remaining = providers.flatMap((p) => p.models)
+    let activeModelId = settings.activeModelId
+    if (!remaining.some((m) => m.id === activeModelId)) {
+      activeModelId = remaining[0]?.id ?? activeModelId
+    }
+    setSettings({ ...settings, providers, activeModelId })
+  }
+
+  const runTest = async (p: ProviderConfig): Promise<void> => {
+    setTesting(p.id)
+    setTestResult(null)
     try {
-      const r = await testModel(p, p.id || undefined)
-      setTestResults((prev) => ({ ...prev, [key]: r }))
-      if (p.id) {
-        setSettings((s) =>
-          s
-            ? {
-                ...s,
-                presets: s.presets.map((x) =>
-                  x.id === p.id
-                    ? { ...x, lastTest: { ok: r.ok, message: r.message, at: Date.now() } }
-                    : x
-                )
-              }
-            : s
-        )
-      }
+      const r = await testModel(
+        {
+          provider: p.provider,
+          baseUrl: p.baseUrl,
+          apiKey: p.apiKey,
+          authMode: p.authMode,
+          model: p.models[0]?.model
+        },
+        p.id
+      )
+      setTestResult(r)
+      updateProvider(p.id, {
+        lastTest: { ok: r.ok, message: r.message, at: Date.now() }
+      })
     } catch (e) {
-      setTestResults((prev) => ({
-        ...prev,
-        [key]: {
-          ok: false,
-          message: e instanceof Error ? e.message : String(e)
-        }
-      }))
+      setTestResult({
+        ok: false,
+        message: e instanceof Error ? e.message : String(e)
+      })
     } finally {
-      setTestingId(null)
+      setTesting(null)
     }
   }
 
-  const pullModels = async (p: ModelPreset): Promise<void> => {
-    const key = p.id || p.label || 'draft'
-    setListingId(key)
+  const pullModels = async (p: ProviderConfig): Promise<void> => {
+    setListing(p.id)
+    setTestResult(null)
+    setPulled(null)
     try {
-      const r = await listModels(p)
-      setTestResults((prev) => ({ ...prev, [key]: r }))
+      const r = await listModels({
+        provider: p.provider,
+        baseUrl: p.baseUrl,
+        apiKey: p.apiKey,
+        authMode: p.authMode
+      })
+      setTestResult(r)
       if (r.ok && r.models && r.models.length > 0) {
-        // If current model is empty or not in list, select first
-        const has = r.models.some((m) => m.id === p.model)
-        if (!has) {
-          updatePreset(p.id, { model: r.models[0].id })
-        }
-        // stash list on the result card
+        const existing = new Set(p.models.map((m) => m.model))
+        setPulled(r.models.map((m) => ({ ...m, disabled: existing.has(m.id) })))
       }
     } catch (e) {
-      setTestResults((prev) => ({
-        ...prev,
-        [key]: {
-          ok: false,
-          message: e instanceof Error ? e.message : String(e)
-        }
-      }))
+      setTestResult({
+        ok: false,
+        message: e instanceof Error ? e.message : String(e)
+      })
     } finally {
-      setListingId(null)
+      setListing(null)
     }
+  }
+
+  const addPulledModel = (p: ProviderConfig, remote: { id: string; label: string }): void => {
+    if (p.models.some((m) => m.model === remote.id)) return
+    addModel(p.id, {
+      model: remote.id,
+      label: remote.label || remote.id,
+      contextInputTokens: DEFAULT_CTX_IN,
+      contextOutputTokens: DEFAULT_CTX_OUT
+    })
+    setPulled((prev) =>
+      prev ? prev.map((x) => (x.id === remote.id ? { ...x, disabled: true } : x)) : prev
+    )
   }
 
   const save = async (): Promise<void> => {
@@ -169,204 +274,270 @@ export function SettingsModal({
     }
   }
 
-  const activePreset =
-    section.kind === 'preset' ? settings.presets.find((p) => p.id === section.id) : undefined
-
-  const renderPresetForm = (p: ModelPreset): JSX.Element => {
-    const key = p.id || p.label || 'draft'
-    const tr = testResults[key] ?? (p.lastTest
-      ? { ok: p.lastTest.ok, message: p.lastTest.message }
-      : null)
+  const renderProviderForm = (p: ProviderConfig): JSX.Element => {
+    const tr = testResult ?? (p.lastTest ? { ok: p.lastTest.ok, message: p.lastTest.message } : null)
     return (
-      <div key={p.id} className="preset-card">
-        <div className="settings-pane-title">
-          <span>{p.label || '未命名模型'}</span>
-          {settings.activePresetId === p.id && <span className="settings-badge">默认</span>}
-        </div>
-        <div className="preset-row">
-          <label className="field">
-            <span>名称</span>
-            <input
-              value={p.label}
-              onChange={(e) => updatePreset(p.id, { label: e.target.value })}
-              placeholder="例如 Claude Sonnet"
-            />
-          </label>
-          <label className="field">
-            <span>接口协议</span>
-            <select
-              value={p.protocol}
-              onChange={(e) =>
-                updatePreset(p.id, {
-                  protocol: e.target.value as ModelPreset['protocol']
-                })
-              }
-            >
-              <option value="anthropic-messages">Anthropic Messages</option>
-            </select>
-          </label>
-          <label className="field">
-            <span>提供方</span>
-            <select
-              value={p.provider}
-              onChange={(e) =>
-                updatePreset(p.id, {
-                  provider: e.target.value as ModelPreset['provider']
-                })
-              }
-            >
-              <option value="anthropic">Anthropic 官方</option>
-              <option value="custom">自定义端点</option>
-            </select>
-          </label>
-        </div>
+      <div key={p.id} className="settings-pane-slide">
+        {/* ── 上：供应商连接 ── */}
+        <section className="preset-card">
+          <div className="settings-pane-title">
+            <span>供应商</span>
+            <span className="settings-badge">{p.provider === 'anthropic' ? 'Anthropic' : '自定义'}</span>
+          </div>
 
-        <div className="preset-row">
-          <label className="field field-grow">
-            <span>接口地址</span>
-            <input
-              value={p.baseUrl ?? ''}
-              onChange={(e) => updatePreset(p.id, { baseUrl: e.target.value })}
-              placeholder="https://api.anthropic.com"
-            />
-          </label>
-          <label className="field field-grow">
-            <span>API Key</span>
-            <input
-              type="password"
-              value={p.apiKey ?? ''}
-              onChange={(e) => updatePreset(p.id, { apiKey: e.target.value })}
-              placeholder={p.provider === 'anthropic' && p.authMode === 'subscription' ? '订阅登录可留空' : 'sk-...'}
-            />
-          </label>
-        </div>
-
-        {p.provider === 'anthropic' && (
           <div className="preset-row">
             <label className="field">
-              <span>鉴权方式</span>
+              <span>名称</span>
+              <input
+                value={p.label}
+                onChange={(e) => updateProvider(p.id, { label: e.target.value })}
+                placeholder="例如 MiniMax / Kimi"
+              />
+            </label>
+            <label className="field">
+              <span>接口协议</span>
               <select
-                value={p.authMode ?? 'subscription'}
+                value={p.protocol}
                 onChange={(e) =>
-                  updatePreset(p.id, {
-                    authMode: e.target.value as ModelPreset['authMode']
+                  updateProvider(p.id, {
+                    protocol: e.target.value as ProviderConfig['protocol']
                   })
                 }
               >
-                <option value="subscription">Claude 订阅登录</option>
-                <option value="api-key">API Key</option>
+                <option value="anthropic-messages">Anthropic Messages</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>提供方</span>
+              <select
+                value={p.provider}
+                onChange={(e) =>
+                  updateProvider(p.id, {
+                    provider: e.target.value as ProviderConfig['provider']
+                  })
+                }
+              >
+                <option value="anthropic">Anthropic 官方</option>
+                <option value="custom">自定义端点</option>
               </select>
             </label>
           </div>
-        )}
 
-        <div className="preset-row">
-          <label className="field">
-            <span>模型 ID</span>
-            <div className="inline-input">
+          <div className="preset-row">
+            <label className="field field-grow">
+              <span>接口地址</span>
               <input
-                list={`models-${p.id}`}
-                value={p.model}
-                onChange={(e) => updatePreset(p.id, { model: e.target.value })}
-                placeholder="claude-sonnet-4-5"
+                value={p.baseUrl ?? ''}
+                onChange={(e) => updateProvider(p.id, { baseUrl: e.target.value })}
+                placeholder="https://api.anthropic.com"
               />
-              <datalist id={`models-${p.id}`}>
-                {(testResults[key]?.models ?? []).map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-              </datalist>
-            </div>
-          </label>
-          <label className="field">
-            <span>输入上下文（tokens）</span>
-            <input
-              type="number"
-              min={1000}
-              step={1000}
-              value={p.contextInputTokens ?? DEFAULT_CTX_IN}
-              onChange={(e) =>
-                updatePreset(p.id, {
-                  contextInputTokens: Number(e.target.value) || DEFAULT_CTX_IN
-                })
-              }
-            />
-          </label>
-          <label className="field">
-            <span>输出上限（tokens）</span>
-            <input
-              type="number"
-              min={256}
-              step={1024}
-              value={p.contextOutputTokens ?? DEFAULT_CTX_OUT}
-              onChange={(e) =>
-                updatePreset(p.id, {
-                  contextOutputTokens: Number(e.target.value) || DEFAULT_CTX_OUT
-                })
-              }
-            />
-          </label>
-        </div>
-
-        <div className="preset-actions">
-          <div className="preset-actions-left">
-            <label className="radio-inline">
+            </label>
+            <label className="field field-grow">
+              <span>API Key</span>
               <input
-                type="radio"
-                name="active-preset"
-                checked={settings.activePresetId === p.id}
-                onChange={() =>
-                  setSettings((s) => (s ? { ...s, activePresetId: p.id } : s))
+                type="password"
+                value={p.apiKey ?? ''}
+                onChange={(e) => updateProvider(p.id, { apiKey: e.target.value })}
+                placeholder={
+                  p.provider === 'anthropic' && p.authMode === 'subscription'
+                    ? '订阅登录可留空'
+                    : 'sk-...'
                 }
               />
-              默认
             </label>
+            {p.provider === 'anthropic' && (
+              <label className="field">
+                <span>鉴权方式</span>
+                <select
+                  value={p.authMode ?? 'subscription'}
+                  onChange={(e) =>
+                    updateProvider(p.id, {
+                      authMode: e.target.value as ProviderConfig['authMode']
+                    })
+                  }
+                >
+                  <option value="subscription">Claude 订阅登录</option>
+                  <option value="api-key">API Key</option>
+                </select>
+              </label>
+            )}
+          </div>
+
+          <div className="preset-actions">
+            <div className="preset-actions-left">
+              <button
+                className="btn-secondary"
+                disabled={testing === p.id}
+                onClick={() => void runTest(p)}
+              >
+                {testing === p.id ? '测试中…' : '测试连通'}
+              </button>
+              {settings.providers.length > 1 && (
+                <button className="btn-danger-ghost" onClick={() => removeProvider(p.id)}>
+                  删除供应商
+                </button>
+              )}
+            </div>
+          </div>
+
+          {tr && (
+            <div className={`test-result${tr.ok ? ' ok' : ' err'}`}>
+              {tr.ok ? '✓' : '✕'} {tr.message}
+            </div>
+          )}
+        </section>
+
+        {/* ── 下：模型列表 ── */}
+        <section className="preset-card">
+          <div className="settings-pane-title">
+            <span>模型列表</span>
+            <span className="settings-badge">{p.models.length} 个</span>
+          </div>
+
+          <div className="model-toolbar">
             <button
               className="btn-secondary"
-              disabled={testingId === key}
-              onClick={() => void runTest(p)}
-            >
-              {testingId === key ? '测试中…' : '测试连通'}
-            </button>
-            <button
-              className="btn-secondary"
-              disabled={listingId === key}
+              disabled={listing === p.id}
               onClick={() => void pullModels(p)}
             >
-              {listingId === key ? '拉取中…' : '拉取模型列表'}
+              {listing === p.id ? '拉取中…' : '拉取模型列表'}
             </button>
-            {settings.presets.length > 1 && (
-              <button className="btn-danger-ghost" onClick={() => removePreset(p.id)}>
-                删除
-              </button>
-            )}
+            <button
+              className="btn-secondary"
+              onClick={() =>
+                addModel(p.id, {
+                  model: '',
+                  label: `模型 ${p.models.length + 1}`,
+                  contextInputTokens: DEFAULT_CTX_IN,
+                  contextOutputTokens: DEFAULT_CTX_OUT
+                })
+              }
+            >
+              ＋ 手动添加
+            </button>
           </div>
-        </div>
 
-        {tr && (
-          <div className={`test-result${tr.ok ? ' ok' : ' err'}`}>
-            {tr.ok ? '✓' : '✕'} {tr.message}
-            {tr.models && tr.models.length > 0 && (
+          {pulled && pulled.length > 0 && (
+            <div className="pulled-panel">
+              <div className="pulled-title">从接口发现的模型 · 点击添加</div>
               <div className="model-chips">
-                {tr.models.slice(0, 12).map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    className={`model-chip${p.model === m.id ? ' active' : ''}`}
-                    onClick={() => updatePreset(p.id, { model: m.id })}
-                    title={m.label}
-                  >
-                    {m.id}
-                  </button>
-                ))}
-                {tr.models.length > 12 && (
-                  <span className="model-more">+{tr.models.length - 12}</span>
-                )}
+                {pulled.map((m) => {
+                  const already = p.models.some((x) => x.model === m.id) || m.disabled
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      className={`model-chip${already ? ' active' : ''}`}
+                      disabled={already}
+                      onClick={() => addPulledModel(p, m)}
+                      title={m.label}
+                    >
+                      {already ? '✓ ' : '＋ '}
+                      {m.id}
+                    </button>
+                  )
+                })}
               </div>
-            )}
-          </div>
-        )}
+            </div>
+          )}
+
+          {p.models.length === 0 ? (
+            <div className="form-error" style={{ opacity: 0.7 }}>
+              尚未添加模型。拉取列表后点击添加，或手动添加一个。
+            </div>
+          ) : (
+            <div className="model-table">
+              <div className="model-table-head">
+                <span className="col-default">默认</span>
+                <span className="col-model">模型 ID</span>
+                <span className="col-label">显示名</span>
+                <span className="col-ctx">输入上下文</span>
+                <span className="col-out">输出上限</span>
+                <span className="col-act" />
+              </div>
+              {p.models.map((m) => (
+                <div key={m.id} className="model-table-row">
+                  <span className="col-default">
+                    <label className="radio-inline" title="设为默认模型">
+                      <input
+                        type="radio"
+                        name="active-model"
+                        checked={settings.activeModelId === m.id}
+                        onChange={() =>
+                          setSettings((s) => (s ? { ...s, activeModelId: m.id } : s))
+                        }
+                      />
+                    </label>
+                  </span>
+                  <span className="col-model">
+                    <input
+                      value={m.model}
+                      onChange={(e) => updateModel(p.id, m.id, { model: e.target.value })}
+                      placeholder="claude-sonnet-4-5"
+                      spellCheck={false}
+                    />
+                  </span>
+                  <span className="col-label">
+                    <input
+                      value={m.label}
+                      onChange={(e) => updateModel(p.id, m.id, { label: e.target.value })}
+                      placeholder="显示名"
+                    />
+                  </span>
+                  <span className="col-ctx">
+                    <input
+                      type="number"
+                      min={1000}
+                      step={1000}
+                      value={m.contextInputTokens ?? DEFAULT_CTX_IN}
+                      onChange={(e) =>
+                        updateModel(p.id, m.id, {
+                          contextInputTokens: Number(e.target.value) || DEFAULT_CTX_IN
+                        })
+                      }
+                      title="输入上下文（tokens）"
+                    />
+                  </span>
+                  <span className="col-out">
+                    <input
+                      type="number"
+                      min={256}
+                      step={1024}
+                      value={m.contextOutputTokens ?? DEFAULT_CTX_OUT}
+                      onChange={(e) =>
+                        updateModel(p.id, m.id, {
+                          contextOutputTokens: Number(e.target.value) || DEFAULT_CTX_OUT
+                        })
+                      }
+                      title="输出上限（tokens）"
+                    />
+                  </span>
+                  <span className="col-act">
+                    <button
+                      className="btn-icon"
+                      title="删除模型"
+                      onClick={() => removeModel(p.id, m.id)}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {p.models.length > 0 && (
+            <div className="model-table-foot">
+              共 {p.models.length} 个模型 · 当前默认：
+              <strong>
+                {allModels(settings).find((m) => m.id === settings.activeModelId)?.label ||
+                  allModels(settings).find((m) => m.id === settings.activeModelId)?.model ||
+                  '—'}
+              </strong>
+              （全局 {modelCount} 个）
+            </div>
+          )}
+        </section>
       </div>
     )
   }
@@ -430,32 +601,34 @@ export function SettingsModal({
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal modal-wide modal-settings" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <div className="modal-title">设置</div>
+          <div className="modal-title">设置 · 模型</div>
           <button className="btn-icon" onClick={onClose} title="关闭">
             ✕
           </button>
         </div>
         <div className="modal-settings-body">
           <nav className="settings-nav">
-            <div className="settings-nav-section">模型</div>
-            {settings.presets.map((p, i) => {
-              const active = section.kind === 'preset' && section.id === p.id
+            <div className="settings-nav-section">供应商</div>
+            {settings.providers.map((p, i) => {
+              const active = section.kind === 'provider' && section.id === p.id
+              const hasDefault = p.models.some((m) => m.id === settings.activeModelId)
               return (
                 <button
                   key={p.id}
                   type="button"
                   className={`settings-nav-item${active ? ' active' : ''}`}
-                  onClick={() => setSection({ kind: 'preset', id: p.id })}
+                  onClick={() => setSection({ kind: 'provider', id: p.id })}
                 >
-                  <span className="settings-nav-label">{p.label || `模型 ${i + 1}`}</span>
-                  {settings.activePresetId === p.id && (
-                    <span className="settings-nav-meta">默认</span>
-                  )}
+                  <span className="settings-nav-label">{p.label || `供应商 ${i + 1}`}</span>
+                  <span className="settings-nav-meta">
+                    {hasDefault && <span className="settings-nav-dot">★</span>}
+                    {p.models.length}
+                  </span>
                 </button>
               )
             })}
-            <button type="button" className="settings-nav-item settings-nav-add" onClick={addPreset}>
-              ＋ 添加模型
+            <button type="button" className="settings-nav-item settings-nav-add" onClick={addProvider}>
+              ＋ 添加供应商
             </button>
             <div className="settings-nav-section">其他</div>
             <button
@@ -467,13 +640,13 @@ export function SettingsModal({
             </button>
           </nav>
           <div className="settings-pane">
-            <div key={section.kind === 'preset' ? section.id : 'uiDev'} className="settings-pane-slide">
+            <div key={section.kind === 'provider' ? section.id : 'uiDev'}>
               {section.kind === 'uiDev'
                 ? renderUiDev()
-                : activePreset
-                  ? renderPresetForm(activePreset)
-                  : settings.presets[0]
-                    ? renderPresetForm(settings.presets[0])
+                : activeProvider
+                  ? renderProviderForm(activeProvider)
+                  : settings.providers[0]
+                    ? renderProviderForm(settings.providers[0])
                     : renderUiDev()}
             </div>
             {error && <div className="form-error">{error}</div>}

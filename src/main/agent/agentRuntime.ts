@@ -10,10 +10,10 @@ import type {
   AgentPhase,
   AgentTask,
   ChatMessage,
-  ModelPreset,
+  ResolvedModel,
   ToolStatus
 } from './types'
-import { buildEnvForPreset, loadSettings, pickPreset, settingsEnvForPreset } from './modelConfig'
+import { buildEnvForModel, loadSettings, pickModel, settingsEnvForModel } from './modelConfig'
 import * as sessionStore from './sessionStore'
 import { classifyTool, denyAllPending, requestPermission, setAllowToolForSession } from './permissionBridge'
 import { pluginRegistry } from '../plugin/registry'
@@ -680,9 +680,9 @@ async function startSession(
   accessMode: AccessMode = 'approve'
 ): Promise<ActiveSession> {
   const settings = await loadSettings()
-  const preset: ModelPreset | undefined = pickPreset(settings, modelId)
+  const preset: ResolvedModel | undefined = pickModel(settings, modelId)
   if (!preset) {
-    throw new Error('未配置可用模型，请在设置中添加模型预设。')
+    throw new Error('未配置可用模型，请在设置中添加供应商与模型。')
   }
 
   const task = await sessionStore.getTask(taskId)
@@ -751,7 +751,7 @@ async function startSession(
 
   const env = {
     ...process.env,
-    ...buildEnvForPreset(preset)
+    ...buildEnvForModel(preset)
   }
 
   // 1M context beta is Anthropic-only — custom gateways reject unknown beta headers
@@ -785,7 +785,7 @@ async function startSession(
       // Override ~/.claude/settings.json `env` (base URL / model / token) — user
       // settings would otherwise win over options.env and hit the wrong gateway.
       settings: {
-        env: settingsEnvForPreset(preset)
+        env: settingsEnvForModel(preset)
       },
       // Inherit Claude Code ecosystem: skills / agents / hooks / mcp / plugins / commands.
       settingSources: ['user', 'project'],
@@ -849,8 +849,8 @@ export async function sendMessage(params: {
   if (!trimmed) return { ok: false, error: '消息不能为空' }
 
   const settings = await loadSettings()
-  const presetId = params.modelId ?? settings.activePresetId
-  const preset = pickPreset(settings, presetId)
+  const presetId = params.modelId ?? settings.activeModelId
+  const preset = pickModel(settings, presetId)
   if (!preset) return { ok: false, error: '未配置可用模型，请打开设置。' }
 
   const skills = await listSkills().catch(() => [])
@@ -967,8 +967,8 @@ setAllowToolForSession(allowToolForSession)
 
 export async function switchModel(taskId: string, modelId: string): Promise<{ ok: boolean; error?: string }> {
   const settings = await loadSettings()
-  const preset = pickPreset(settings, modelId)
-  if (!preset) return { ok: false, error: '模型预设不存在' }
+  const preset = pickModel(settings, modelId)
+  if (!preset) return { ok: false, error: '模型不存在' }
 
   await sessionStore.updateTask(taskId, { modelId: preset.id })
   const session = active.get(taskId)

@@ -6,7 +6,7 @@ import type {
   AgentTask,
   ChatMessage,
   ConnectivityResult,
-  ModelPreset,
+  ProviderConnection,
   PermissionRequestPayload,
   SkillInfo
 } from './types'
@@ -19,15 +19,15 @@ export async function saveSettings(settings: AgentSettings): Promise<AgentSettin
   return (await window.devdash.invoke('agent:settings:save', settings)) as AgentSettings
 }
 
-export async function listModels(preset: ModelPreset): Promise<ConnectivityResult> {
-  return (await window.devdash.invoke('agent:models:list', preset)) as ConnectivityResult
+export async function listModels(conn: ProviderConnection): Promise<ConnectivityResult> {
+  return (await window.devdash.invoke('agent:models:list', conn)) as ConnectivityResult
 }
 
 export async function testModel(
-  preset: ModelPreset,
-  presetId?: string
+  conn: ProviderConnection,
+  providerId?: string
 ): Promise<ConnectivityResult> {
-  return (await window.devdash.invoke('agent:models:test', { preset, presetId })) as ConnectivityResult
+  return (await window.devdash.invoke('agent:models:test', { conn, providerId })) as ConnectivityResult
 }
 
 export async function listSkills(): Promise<SkillInfo[]> {

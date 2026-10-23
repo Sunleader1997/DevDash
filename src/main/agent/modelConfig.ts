@@ -5,7 +5,10 @@ import { randomUUID } from 'node:crypto'
 import type {
   AgentSettings,
   ConnectivityResult,
-  ModelPreset
+  ModelEntry,
+  ProviderConfig,
+  ProviderConnection,
+  ResolvedModel
 } from './types'
 
 const FILE = 'agent-settings.json'
@@ -13,22 +16,34 @@ const FILE = 'agent-settings.json'
 export const DEFAULT_CONTEXT_INPUT = 1_000_000
 export const DEFAULT_CONTEXT_OUTPUT = 64_000
 
-function defaultPreset(): ModelPreset {
+export function newId(): string {
+  return randomUUID()
+}
+
+function defaultModel(): ModelEntry {
   return {
     id: 'anthropic-default',
-    label: 'Claude（订阅）',
-    provider: 'anthropic',
-    protocol: 'anthropic-messages',
     model: 'claude-sonnet-4-5',
-    authMode: 'subscription',
+    label: 'Claude Sonnet 4.5',
     contextInputTokens: DEFAULT_CONTEXT_INPUT,
     contextOutputTokens: DEFAULT_CONTEXT_OUTPUT
   }
 }
 
+function defaultProvider(): ProviderConfig {
+  return {
+    id: 'anthropic-default-provider',
+    label: 'Claude（订阅）',
+    provider: 'anthropic',
+    protocol: 'anthropic-messages',
+    authMode: 'subscription',
+    models: [defaultModel()]
+  }
+}
+
 export const DEFAULT_SETTINGS: AgentSettings = {
-  presets: [defaultPreset()],
-  activePresetId: 'anthropic-default',
+  providers: [defaultProvider()],
+  activeModelId: 'anthropic-default',
   uiDev: { enableCdp: false, cdpPort: 9222 }
 }
 
@@ -36,37 +51,129 @@ function settingsPath(): string {
   return path.join(app.getPath('userData'), FILE)
 }
 
-function normalizePreset(p: Partial<ModelPreset> & { id: string }): ModelPreset {
-  const baseUrl = p.baseUrl ? normalizeAnthropicBase(p.baseUrl) : p.baseUrl
+function normalizeModelEntry(m: Partial<ModelEntry> & { id: string }, fallbackLabel?: string): ModelEntry {
   return {
-    ...p,
-    baseUrl,
-    label: p.label || p.model || '模型',
+    id: m.id,
+    model: m.model || 'claude-sonnet-4-5',
+    label: m.label || fallbackLabel || m.model || '模型',
+    contextInputTokens: m.contextInputTokens ?? DEFAULT_CONTEXT_INPUT,
+    contextOutputTokens: m.contextOutputTokens ?? DEFAULT_CONTEXT_OUTPUT
+  }
+}
+
+function normalizeProvider(p: Partial<ProviderConfig> & { id: string }): ProviderConfig {
+  const baseUrl = p.baseUrl ? normalizeAnthropicBase(p.baseUrl) : p.baseUrl
+  const models = Array.isArray(p.models)
+    ? p.models
+        .filter((m): m is ModelEntry => !!(m && m.id))
+        .map((m) => normalizeModelEntry(m))
+    : []
+  return {
+    id: p.id,
+    label: p.label || (p.provider === 'anthropic' ? 'Anthropic' : '自定义端点'),
     provider: p.provider ?? (baseUrl ? 'custom' : 'anthropic'),
     protocol: p.protocol ?? 'anthropic-messages',
-    model: p.model || 'claude-sonnet-4-5',
-    contextInputTokens: p.contextInputTokens ?? DEFAULT_CONTEXT_INPUT,
-    contextOutputTokens: p.contextOutputTokens ?? DEFAULT_CONTEXT_OUTPUT
+    baseUrl,
+    apiKey: p.apiKey,
+    authMode: p.authMode ?? 'api-key',
+    models,
+    lastTest: p.lastTest
+  }
+}
+
+/**
+ * Legacy flat `presets[]` → hierarchical `providers[]`.
+ * Each old preset becomes a provider with a single model, keeping the preset id
+ * as the ModelEntry id so existing `task.modelId` values still resolve.
+ */
+function migrateLegacyPresets(raw: Record<string, unknown>): AgentSettings | null {
+  const presets = raw.presets
+  if (!Array.isArray(presets) || presets.length === 0) return null
+
+  const providers: ProviderConfig[] = []
+  const modelIds = new Set<string>()
+  let firstModelId = ''
+
+  for (const p of presets as Array<Record<string, unknown> & { id?: string }>) {
+    if (!p || !p.id) continue
+    const modelId = String(p.id)
+    const entry = normalizeModelEntry(
+      {
+        id: modelId,
+        model: typeof p.model === 'string' ? p.model : undefined,
+        label: typeof p.label === 'string' ? p.label : undefined,
+        contextInputTokens:
+          typeof p.contextInputTokens === 'number' ? p.contextInputTokens : undefined,
+        contextOutputTokens:
+          typeof p.contextOutputTokens === 'number' ? p.contextOutputTokens : undefined
+      } as Partial<ModelEntry> & { id: string },
+      typeof p.label === 'string' ? p.label : undefined
+    )
+    providers.push({
+      id: `${modelId}:provider`,
+      label: typeof p.label === 'string' ? p.label : entry.model,
+      provider: (p.provider as ProviderConfig['provider']) ?? (p.baseUrl ? 'custom' : 'anthropic'),
+      protocol: 'anthropic-messages',
+      baseUrl: typeof p.baseUrl === 'string' ? normalizeAnthropicBase(p.baseUrl) : undefined,
+      apiKey: typeof p.apiKey === 'string' ? p.apiKey : undefined,
+      authMode: (p.authMode as ProviderConfig['authMode']) ?? 'api-key',
+      models: [entry],
+      lastTest: p.lastTest as ProviderConfig['lastTest']
+    })
+    modelIds.add(modelId)
+    if (!firstModelId) firstModelId = modelId
+  }
+
+  if (providers.length === 0) return null
+
+  const rawActive = typeof raw.activePresetId === 'string' ? raw.activePresetId : ''
+  const activeModelId = modelIds.has(rawActive) ? rawActive : firstModelId
+  return {
+    providers,
+    activeModelId,
+    uiDev: normalizeUiDev(raw.uiDev as AgentSettings['uiDev'])
   }
 }
 
 export async function loadSettings(): Promise<AgentSettings> {
   try {
     const raw = await fs.readFile(settingsPath(), 'utf8')
-    const parsed = JSON.parse(raw) as Partial<AgentSettings>
-    if (!parsed || !Array.isArray(parsed.presets) || parsed.presets.length === 0) {
-      return { ...DEFAULT_SETTINGS, presets: [defaultPreset()] }
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    if (!parsed || typeof parsed !== 'object') {
+      return { ...DEFAULT_SETTINGS, providers: [defaultProvider()] }
     }
-    const presets = parsed.presets.filter((p) => p && p.id).map((p) => normalizePreset(p))
-    if (presets.length === 0) return { ...DEFAULT_SETTINGS, presets: [defaultPreset()] }
-    const activePresetId =
-      parsed.activePresetId && presets.some((p) => p.id === parsed.activePresetId)
-        ? parsed.activePresetId
-        : presets[0].id
-    const uiDev = normalizeUiDev(parsed.uiDev)
-    return { presets, activePresetId, uiDev }
+
+    // New hierarchical format
+    if (Array.isArray(parsed.providers)) {
+      const providers = (parsed.providers as ProviderConfig[])
+        .filter((p) => p && p.id)
+        .map((p) => normalizeProvider(p))
+        .filter((p) => p.models.length > 0)
+      if (providers.length === 0) {
+        return { ...DEFAULT_SETTINGS, providers: [defaultProvider()] }
+      }
+      const allModels = providers.flatMap((p) => p.models)
+      const rawActive = typeof parsed.activeModelId === 'string' ? parsed.activeModelId : ''
+      const activeModelId =
+        allModels.find((m) => m.id === rawActive)?.id ?? allModels[0].id
+      return {
+        providers,
+        activeModelId,
+        uiDev: normalizeUiDev(parsed.uiDev as AgentSettings['uiDev'])
+      }
+    }
+
+    // Legacy presets format → migrate
+    const migrated = migrateLegacyPresets(parsed)
+    if (migrated) {
+      // Persist the migration so subsequent loads hit the new path.
+      await saveSettings(migrated).catch(() => undefined)
+      return migrated
+    }
+
+    return { ...DEFAULT_SETTINGS, providers: [defaultProvider()] }
   } catch {
-    return { ...DEFAULT_SETTINGS, presets: [defaultPreset()] }
+    return { ...DEFAULT_SETTINGS, providers: [defaultProvider()] }
   }
 }
 
@@ -80,72 +187,111 @@ function normalizeUiDev(raw: Partial<AgentSettings['uiDev']>): AgentSettings['ui
 export async function saveSettings(settings: AgentSettings): Promise<void> {
   const file = settingsPath()
   await fs.mkdir(path.dirname(file), { recursive: true })
-  // Normalize MiniMax-style base URLs on save so the next session hits /anthropic
   const normalized: AgentSettings = {
-    ...settings,
-    presets: settings.presets.map((p) =>
+    providers: settings.providers.map((p) =>
       p.baseUrl
-        ? { ...p, baseUrl: normalizeAnthropicBase(p.baseUrl) }
-        : p
+        ? {
+            ...p,
+            baseUrl: normalizeAnthropicBase(p.baseUrl),
+            models: p.models.map((m) => normalizeModelEntry(m))
+          }
+        : { ...p, models: p.models.map((m) => normalizeModelEntry(m)) }
     ),
+    activeModelId: settings.activeModelId,
     uiDev: normalizeUiDev(settings.uiDev)
   }
   await fs.writeFile(file, JSON.stringify(normalized, null, 2), 'utf8')
 }
 
-export function newPresetId(): string {
-  return randomUUID()
+/** Flat list of every selectable model (for dropdowns). */
+export function listAllModels(settings: AgentSettings): ResolvedModel[] {
+  const out: ResolvedModel[] = []
+  for (const p of settings.providers) {
+    for (const m of p.models) {
+      out.push(resolveFrom(p, m))
+    }
+  }
+  return out
+}
+
+function resolveFrom(p: ProviderConfig, m: ModelEntry): ResolvedModel {
+  return {
+    id: m.id,
+    label: m.label,
+    model: m.model,
+    contextInputTokens: m.contextInputTokens ?? DEFAULT_CONTEXT_INPUT,
+    contextOutputTokens: m.contextOutputTokens ?? DEFAULT_CONTEXT_OUTPUT,
+    provider: p.provider,
+    protocol: p.protocol,
+    baseUrl: p.baseUrl,
+    apiKey: p.apiKey,
+    authMode: p.authMode,
+    providerId: p.id
+  }
 }
 
 /**
- * Map a model preset to Claude Agent SDK env vars.
+ * Resolve a ModelEntry id (or legacy preset id) to a flat runtime model.
+ * Falls back to the active model, then the first configured model.
+ */
+export function pickModel(settings: AgentSettings, modelId?: string): ResolvedModel | undefined {
+  const all = listAllModels(settings)
+  if (modelId) {
+    const hit = all.find((m) => m.id === modelId)
+    if (hit) return hit
+  }
+  return all.find((m) => m.id === settings.activeModelId) ?? all[0]
+}
+
+/**
+ * Map a resolved model to Claude Agent SDK env vars.
  * `options.env` replaces process.env, so callers must spread process.env first.
  *
  * Custom/non-Claude endpoints (e.g. MiniMax-M3) must pin ALL model aliases —
  * Claude Code otherwise falls back to haiku/sonnet for internal calls and the
  * gateway returns `400 Unsupported model`.
  */
-export function buildEnvForPreset(preset: ModelPreset): Record<string, string | undefined> {
+export function buildEnvForModel(model: ResolvedModel): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = {
     CLAUDE_AGENT_SDK_CLIENT_APP: 'DevDash/0.1.0'
   }
 
-  const baseUrl = preset.baseUrl?.trim()
-  const apiKey = preset.apiKey?.trim()
-  const model = preset.model?.trim()
+  const baseUrl = model.baseUrl?.trim()
+  const apiKey = model.apiKey?.trim()
+  const modelId = model.model?.trim()
 
-  if (preset.provider === 'custom' || baseUrl) {
+  if (model.provider === 'custom' || baseUrl) {
     if (baseUrl) env.ANTHROPIC_BASE_URL = normalizeAnthropicBase(baseUrl)
     if (apiKey) {
       env.ANTHROPIC_API_KEY = apiKey
       env.ANTHROPIC_AUTH_TOKEN = apiKey
     }
     // Pin every alias to the configured model so internal haiku/sonnet calls work
-    if (model) {
-      env.ANTHROPIC_MODEL = model
-      env.ANTHROPIC_SMALL_FAST_MODEL = model
-      env.ANTHROPIC_DEFAULT_SONNET_MODEL = model
-      env.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME = model
-      env.ANTHROPIC_DEFAULT_OPUS_MODEL = model
-      env.ANTHROPIC_DEFAULT_OPUS_MODEL_NAME = model
-      env.ANTHROPIC_DEFAULT_HAIKU_MODEL = model
+    if (modelId) {
+      env.ANTHROPIC_MODEL = modelId
+      env.ANTHROPIC_SMALL_FAST_MODEL = modelId
+      env.ANTHROPIC_DEFAULT_SONNET_MODEL = modelId
+      env.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME = modelId
+      env.ANTHROPIC_DEFAULT_OPUS_MODEL = modelId
+      env.ANTHROPIC_DEFAULT_OPUS_MODEL_NAME = modelId
+      env.ANTHROPIC_DEFAULT_HAIKU_MODEL = modelId
     }
     return env
   }
 
   // Anthropic official
-  if (preset.authMode === 'api-key' && apiKey) {
+  if (model.authMode === 'api-key' && apiKey) {
     env.ANTHROPIC_API_KEY = apiKey
     env.ANTHROPIC_AUTH_TOKEN = apiKey
   }
-  if (model) {
-    env.ANTHROPIC_MODEL = model
-    env.ANTHROPIC_DEFAULT_SONNET_MODEL = model
-    env.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME = model
-    env.ANTHROPIC_DEFAULT_OPUS_MODEL = model
-    env.ANTHROPIC_DEFAULT_OPUS_MODEL_NAME = model
-    env.ANTHROPIC_DEFAULT_HAIKU_MODEL = model
-    env.ANTHROPIC_SMALL_FAST_MODEL = model
+  if (modelId) {
+    env.ANTHROPIC_MODEL = modelId
+    env.ANTHROPIC_DEFAULT_SONNET_MODEL = modelId
+    env.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME = modelId
+    env.ANTHROPIC_DEFAULT_OPUS_MODEL = modelId
+    env.ANTHROPIC_DEFAULT_OPUS_MODEL_NAME = modelId
+    env.ANTHROPIC_DEFAULT_HAIKU_MODEL = modelId
+    env.ANTHROPIC_SMALL_FAST_MODEL = modelId
   }
   return env
 }
@@ -156,23 +302,18 @@ export function buildEnvForPreset(preset: ModelPreset): Record<string, string | 
  * `settingSources: ['user','project']` loads `~/.claude/settings.json`, whose `env`
  * block (base URL / model / token) would otherwise override `options.env`.
  * `--settings` / SDK `settings` sits above user settings in Claude Code's merge
- * order, so pinning the same keys here makes the DevDash preset win.
+ * order, so pinning the same keys here makes the DevDash model win.
  */
-export function settingsEnvForPreset(preset: ModelPreset): Record<string, string> {
+export function settingsEnvForModel(model: ResolvedModel): Record<string, string> {
   const out: Record<string, string> = {}
-  for (const [k, v] of Object.entries(buildEnvForPreset(preset))) {
+  for (const [k, v] of Object.entries(buildEnvForModel(model))) {
     if (typeof v === 'string' && v) out[k] = v
   }
   return out
 }
 
-export function pickPreset(settings: AgentSettings, presetId?: string): ModelPreset | undefined {
-  if (presetId) return settings.presets.find((p) => p.id === presetId)
-  return settings.presets.find((p) => p.id === settings.activePresetId) ?? settings.presets[0]
-}
-
-function resolveBaseUrl(preset: ModelPreset): string {
-  const raw = preset.baseUrl?.trim()
+function resolveBaseUrl(conn: ProviderConnection): string {
+  const raw = conn.baseUrl?.trim()
   if (!raw) return 'https://api.anthropic.com'
   return normalizeAnthropicBase(raw)
 }
@@ -213,12 +354,12 @@ export function normalizeAnthropicBase(url: string): string {
   }
 }
 
-function authHeaders(preset: ModelPreset): Record<string, string> {
+function authHeaders(conn: ProviderConnection): Record<string, string> {
   const headers: Record<string, string> = {
     'content-type': 'application/json',
     'anthropic-version': '2023-06-01'
   }
-  const key = preset.apiKey?.trim()
+  const key = conn.apiKey?.trim()
   if (key) {
     headers['x-api-key'] = key
     headers['authorization'] = `Bearer ${key}`
@@ -231,9 +372,8 @@ function authHeaders(preset: ModelPreset): Record<string, string> {
  * Note: MiniMax also exposes OpenAI-style `/v1/models` on the bare host, which does NOT
  * prove the Anthropic path works. Prefer `probeMessages` for a real chat check.
  */
-export async function fetchModelList(preset: ModelPreset): Promise<ConnectivityResult> {
-  // Prefer the messages-adjacent models route when we know the anthropic prefix
-  const base = resolveBaseUrl(preset)
+export async function fetchModelList(conn: ProviderConnection): Promise<ConnectivityResult> {
+  const base = resolveBaseUrl(conn)
   const started = Date.now()
   const candidates = [`${base}/v1/models`, `${base.replace(/\/anthropic$/, '')}/v1/models`]
   let lastErr = ''
@@ -241,7 +381,7 @@ export async function fetchModelList(preset: ModelPreset): Promise<ConnectivityR
     try {
       const res = await fetch(url, {
         method: 'GET',
-        headers: authHeaders(preset),
+        headers: authHeaders(conn),
         signal: AbortSignal.timeout(15_000)
       })
       const latencyMs = Date.now() - started
@@ -281,14 +421,14 @@ export async function fetchModelList(preset: ModelPreset): Promise<ConnectivityR
  * Real chat probe: POST `{base}/v1/messages` with the selected model.
  * Catches path bugs (missing /anthropic) that GET /v1/models cannot.
  */
-export async function testConnectivity(preset: ModelPreset): Promise<ConnectivityResult> {
-  const base = resolveBaseUrl(preset)
+export async function testConnectivity(conn: ProviderConnection): Promise<ConnectivityResult> {
+  const base = resolveBaseUrl(conn)
   const started = Date.now()
-  const model = preset.model?.trim() || 'MiniMax-M3'
+  const model = conn.model?.trim() || 'MiniMax-M3'
   try {
     const res = await fetch(`${base}/v1/messages`, {
       method: 'POST',
-      headers: authHeaders(preset),
+      headers: authHeaders(conn),
       body: JSON.stringify({
         model,
         max_tokens: 16,

@@ -2,20 +2,44 @@ export type ModelProvider = 'anthropic' | 'custom'
 export type ModelAuthMode = 'api-key' | 'subscription'
 export type ApiProtocol = 'anthropic-messages'
 
-export type ModelPreset = {
+/** One selectable model under a provider. `id` is the stable handle (task.modelId). */
+export type ModelEntry = {
+  id: string
+  model: string
+  label: string
+  /** Input context tokens; default 1_000_000 */
+  contextInputTokens: number
+  /** Max output tokens; default 64000 */
+  contextOutputTokens: number
+}
+
+/** Connection + credentials + models mounted under it. */
+export type ProviderConfig = {
   id: string
   label: string
   provider: ModelProvider
   protocol: ApiProtocol
-  model: string
   baseUrl?: string
   apiKey?: string
   authMode?: ModelAuthMode
-  /** Input context tokens; default 1_000_000 */
-  contextInputTokens?: number
-  /** Max output tokens; default 64000 */
-  contextOutputTokens?: number
+  models: ModelEntry[]
   lastTest?: { ok: boolean; message: string; at: number }
+}
+
+/** Flattened model for display / runtime selection. */
+export type ResolvedModel = {
+  id: string
+  label: string
+  model: string
+  contextInputTokens: number
+  contextOutputTokens: number
+  provider: ModelProvider
+  protocol: ApiProtocol
+  baseUrl?: string
+  apiKey?: string
+  authMode?: ModelAuthMode
+  providerId: string
+  providerLabel: string
 }
 
 export type UiDevSettings = {
@@ -26,8 +50,9 @@ export type UiDevSettings = {
 }
 
 export type AgentSettings = {
-  presets: ModelPreset[]
-  activePresetId: string
+  providers: ProviderConfig[]
+  /** Default ModelEntry.id */
+  activeModelId: string
   uiDev?: UiDevSettings
 }
 
@@ -96,6 +121,16 @@ export type ConnectivityResult = {
   models?: Array<{ id: string; label: string }>
 }
 
+/** Credentials + endpoint only — enough to list models / probe connectivity. */
+export type ProviderConnection = {
+  provider?: ModelProvider
+  protocol?: ApiProtocol
+  baseUrl?: string
+  apiKey?: string
+  authMode?: ModelAuthMode
+  model?: string
+}
+
 export type AgentEvent =
   | { type: 'message'; taskId: string; message: ChatMessage }
   | {
@@ -133,4 +168,3 @@ export type AgentSendRequest = {
   modelId?: string
   accessMode?: AccessMode
 }
-

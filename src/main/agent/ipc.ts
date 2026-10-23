@@ -2,7 +2,7 @@ import { ipcMain } from 'electron'
 import {
   loadSettings,
   saveSettings,
-  newPresetId,
+  newId,
   fetchModelList,
   testConnectivity
 } from './modelConfig'
@@ -11,7 +11,13 @@ import * as runtime from './agentRuntime'
 import { respondPermission } from './permissionBridge'
 import { listSkills } from './skills'
 import { repoRoot } from './repoRoot'
-import type { AgentSendRequest, AgentSettings, ModelPreset } from './types'
+import type {
+  AgentSendRequest,
+  AgentSettings,
+  ModelEntry,
+  ProviderConfig,
+  ProviderConnection
+} from './types'
 
 export function registerAgentIpc(): void {
   ipcMain.handle('agent:settings:get', async () => {
@@ -19,42 +25,56 @@ export function registerAgentIpc(): void {
   })
 
   ipcMain.handle('agent:settings:save', async (_e, settings: AgentSettings) => {
-    if (!settings || !Array.isArray(settings.presets) || settings.presets.length === 0) {
-      throw new Error('至少需要一个模型预设')
+    if (!settings || !Array.isArray(settings.providers) || settings.providers.length === 0) {
+      throw new Error('至少需要一个供应商')
     }
-    const presets: ModelPreset[] = settings.presets.map((p) => ({
-      ...p,
-      id: p.id || newPresetId()
-    }))
-    const active =
-      presets.find((p) => p.id === settings.activePresetId)?.id ?? presets[0].id
+    const providers: ProviderConfig[] = settings.providers.map((p) => {
+      const models: ModelEntry[] = (p.models ?? [])
+        .filter((m) => m && (m.model || m.id))
+        .map((m) => ({
+          id: m.id || newId(),
+          model: m.model || 'claude-sonnet-4-5',
+          label: m.label || m.model || '模型',
+          contextInputTokens: m.contextInputTokens,
+          contextOutputTokens: m.contextOutputTokens
+        }))
+      return {
+        ...p,
+        id: p.id || newId(),
+        models
+      }
+    })
+    const allModels = providers.flatMap((p) => p.models)
+    if (allModels.length === 0) {
+      throw new Error('至少需要一个模型')
+    }
+    const activeModelId =
+      allModels.find((m) => m.id === settings.activeModelId)?.id ?? allModels[0].id
     const next: AgentSettings = {
-      presets,
-      activePresetId: active,
+      providers,
+      activeModelId,
       uiDev: settings.uiDev
     }
     await saveSettings(next)
     return next
   })
 
-  /** Fetch remote model list for a draft/saved preset. */
-  ipcMain.handle('agent:models:list', async (_e, preset: ModelPreset) => {
-    return fetchModelList(preset)
+  /** Fetch remote model list for a provider connection (draft or saved). */
+  ipcMain.handle('agent:models:list', async (_e, conn: ProviderConnection) => {
+    return fetchModelList(conn)
   })
 
-  /** Connectivity test; optionally persists lastTest on the preset id. */
+  /** Connectivity test; optionally persists lastTest on the provider id. */
   ipcMain.handle(
     'agent:models:test',
-    async (_e, payload: { preset: ModelPreset; presetId?: string }) => {
-      const result = await testConnectivity(payload.preset)
-      if (payload.presetId) {
+    async (_e, payload: { conn: ProviderConnection; providerId?: string }) => {
+      const result = await testConnectivity(payload.conn)
+      if (payload.providerId) {
         const settings = await loadSettings()
-        const idx = settings.presets.findIndex((p) => p.id === payload.presetId)
+        const idx = settings.providers.findIndex((p) => p.id === payload.providerId)
         if (idx >= 0) {
-          settings.presets[idx] = {
-            ...settings.presets[idx],
-            ...payload.preset,
-            id: payload.presetId,
+          settings.providers[idx] = {
+            ...settings.providers[idx],
             lastTest: { ok: result.ok, message: result.message, at: Date.now() }
           }
           await saveSettings(settings)

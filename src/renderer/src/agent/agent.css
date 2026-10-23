@@ -1441,6 +1441,118 @@
   padding: 3px 4px;
 }
 
+/* ---- Settings: provider + model table ---- */
+.settings-nav-dot {
+  color: #f5c542;
+  margin-right: 4px;
+  font-size: 10px;
+}
+
+.model-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pulled-panel {
+  border: 1px dashed var(--separator);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  background: var(--bg-elevated);
+}
+
+.pulled-title {
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  margin-bottom: 8px;
+}
+
+.model-table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.model-table-head,
+.model-table-row {
+  display: grid;
+  grid-template-columns: 48px minmax(120px, 1.4fr) minmax(90px, 1fr) 100px 100px 36px;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 8px;
+  font-size: 11.5px;
+}
+
+.model-table-head {
+  background: var(--bg-hover);
+  color: var(--fg-tertiary);
+  border-bottom: 1px solid var(--separator);
+  font-weight: 500;
+}
+
+.model-table-row {
+  border-bottom: 1px solid var(--separator);
+}
+
+.model-table-row:last-child {
+  border-bottom: none;
+}
+
+.model-table-row input {
+  width: 100%;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--fg);
+  padding: 0 6px;
+  font-size: 12px;
+}
+
+.model-table-row input:hover {
+  border-color: var(--separator);
+  background: var(--bg-elevated);
+}
+
+.model-table-row input:focus {
+  border-color: var(--accent);
+  background: var(--bg-elevated);
+  outline: none;
+}
+
+.model-table-row input[type='number'] {
+  font-variant-numeric: tabular-nums;
+}
+
+.model-table-foot {
+  font-size: 11.5px;
+  color: var(--fg-tertiary);
+  padding: 2px 2px 0;
+}
+
+.model-table-foot strong {
+  color: var(--fg-secondary);
+  font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .model-table-head,
+  .model-table-row {
+    grid-template-columns: 40px 1fr 1fr;
+  }
+
+  .model-table-head .col-ctx,
+  .model-table-head .col-out,
+  .model-table-head .col-act,
+  .model-table-row .col-ctx,
+  .model-table-row .col-out,
+  .model-table-row .col-act {
+    display: none;
+  }
+}
+
 /* ---- + menu: 编排模式 ---- */
 .plus-menu-wrap {
   position: relative;
