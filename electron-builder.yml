@@ -5,18 +5,16 @@ directories:
   output: release
   buildResources: assets/icons
 
-# electron-vite already bundles main/preload/renderer and plugin UI.
-# Only ship built artifacts + plugin manifests — never sources or node_modules.
+# electron-vite already bundles main/preload/renderer.
+# Only ship built artifacts — never plugin sources or node_modules.
+# Built-in plugins are NOT packed into asar; they ship via extraResources below.
 files:
   - package.json
   - out/**/*
-  - plugins/**/package.json
-  - plugins/**/dist/**/*
   - assets/**/*
   - "!**/node_modules/**"
   - "!**/*.{map,ts,tsx,md,log}"
-  - "!plugins/**/src/**"
-  - "!plugins/**/{tsconfig.json,vite.config.ts,package-lock.json}"
+  - "!plugins/**"
   - "!{src,docs,scripts,build,release}/**"
   - "!*.{md,txt,yml,yaml,jsonc}"
   - "!dev-*.txt"
@@ -31,16 +29,19 @@ electronDownload:
   mirror: https://npmmirror.com/mirrors/electron/
 
 asar: true
-# Plugin main is dynamically imported; keep plugins readable if asar ever
-# interferes with the custom protocol, but start packed.
-# asarUnpack:
-#   - plugins/**
+# Built-in plugins live in extraResources (resources/plugins), so asarUnpack
+# is not needed for plugin main/UI loads.
 
 # Preinstalled agent skills (compose-next / devdash-plugin-dev / playwright).
 # Must use extraResources so SKILL.md survives the files `!*.md` exclude.
 extraResources:
   - from: bundled-skills
     to: skills
+  # Built-in sample plugins (git-manager, …) as standalone plugin packages
+  # under <resources>/plugins/<id>/ — not part of the app program bundle.
+  # Stage with scripts/stage-plugins.mjs (manifest + dist only).
+  - from: build/plugins
+    to: plugins
   # User-plugin SDK (shims, template, create/build scripts).
   - from: bundled-plugin-sdk
     to: plugin-sdk

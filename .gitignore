@@ -13,4 +13,5 @@ plugins/git-manager/dist/
 release/
 .devDash/
 build/claude-bin/
+build/plugins/
 output/playwright/

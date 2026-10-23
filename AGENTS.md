@@ -10,6 +10,7 @@ Electron 插件化开发面板：React 18 + TypeScript + electron-vite。npm wor
 | --- | --- |
 | `npm run typecheck` | 唯一自动化门禁（node + web 两个 tsc 工程） |
 | `npm run build:plugins` | 按 `devdash` 清单构建 `plugins/*` → 各自 `dist/` |
+| `npm run stage:plugins` | 把内置插件 manifest + `dist/` 拷到 `build/plugins/`（打包用） |
 | `npm run build` | `build:plugins` 然后 `electron-vite build` |
 | `npm run dev` | electron-vite 开发 |
 | `node scripts/smoke.mjs` | 插件发现 + `devdash.ipc` + `dist/main.js` 存在 + porcelain 解析 |
@@ -29,7 +30,7 @@ src/renderer/   宿主壳（侧栏 / 任务 footer）；alias `@` → src/render
 plugins/<name>/ npm workspace 子应用，package.json 含 `devdash` 清单（id/ui/main/ipc）
 ```
 
-- 宿主在 `src/main/plugin/registry.ts` 扫描 `plugins/*/package.json` 与 `plugins/node_modules/**`；**不要**把插件 UI 硬编码进宿主 React 树。
+- 宿主在 `src/main/plugin/registry.ts` 扫描插件根：开发态 `plugins/*` 与 `plugins/node_modules/**`；安装版 `resources/plugins`（extraResources，不进 asar）与 `userData/plugins`。**不要**把插件 UI 硬编码进宿主 React 树。
 - 插件 UI 经 `devdash-plugin://<id>/dist/ui.js` 动态 `import`。默认导出：`{ id, title, icon?, App }`。
 - 插件与宿主共享一份 React：插件 vite 把 `react` / `react/jsx-runtime` / `react-dom` alias 到 `src/ui/host-react.ts` / `host-jsx-runtime.ts`，运行时读 `globalThis.DevDashHost.React`。alias 的 `find` 必须是精确正则（`/^react$/`），用裸字符串会让 `react/jsx-runtime` 解析错 shim。
 - **领域能力在插件，平台能力在宿主**：`git`/`gitlab`/`settings`（打开策略）在 `plugins/git-manager/src/`，经插件 `main` 的 `activate(ctx).registerIpc` 挂通道；宿主 `src/main` 只留窗口、注册表、plugin protocol、通用 `fs`/`shell`/`store`。
@@ -44,6 +45,7 @@ plugins/<name>/ npm workspace 子应用，package.json 含 `devdash` 清单（id
 ## 容易踩的坑
 
 - `plugins/*/dist/` **不进 git**。clone / CI 后必须 `npm install` 或 `npm run build:plugins`，否则宿主加载 `dist/ui.js` 失败。
+- 内置插件（含 git-manager）打包进 `<resources>/plugins/`（`extraResources`），**不进 app.asar**；`pack:*` 前会跑 `stage:plugins`。
 - `npm run typecheck` **不覆盖** `plugins/*`（各自有 `tsconfig.json`，但没有 typecheck script）。
 - 根 `tsconfig.json` 是 solution 风格（`files: []` + project refs），不要直接 `tsc -p tsconfig.json`；用 `npm run typecheck`。
 - `package-lock.json` 与 `plugins/*/dist/` 同在 `.gitignore`，不要提交。

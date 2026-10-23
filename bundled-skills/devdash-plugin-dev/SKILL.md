@@ -20,7 +20,7 @@ description: DevDash 插件应用开发规范与工程约定。Use when adding o
 | 新建 | `plugins/<name>` npm workspace | `node "<SDK>/create.mjs" <id> [--title "…"]` |
 | 构建 | `npm run build:plugins` | `cd plugins/<id> && node "<SDK>/build.mjs"` |
 | 热部署 | `mcp__devdash__reload_plugin_ui` | 新建/集合变化 → `mcp__devdash__refresh_plugins`；改 UI → `reload_plugin_ui` |
-| 改内置插件 | 改 `plugins/<src>` | **不支持**（只有 dist）；新建用户插件 |
+| 改内置插件 | 改 `plugins/<src>` | **不支持**（`resources/plugins` 仅 dist）；新建用户插件 |
 
 `<SDK>` = 系统提示里写明的 plugin-sdk 路径（开发态 `<repo>/bundled-plugin-sdk`，安装版 `<resources>/plugin-sdk`）。
 
@@ -39,10 +39,11 @@ DevDash/
         └── ui/
 ```
 
-- **main**：`plugin/registry.ts` 扫描 `app/plugins` 与 `userData/plugins`（含 `node_modules/**`），加载插件 `main` 并校验 IPC 后缀。
+- **main**：`plugin/registry.ts` 扫描插件根目录（开发态 `app/plugins`；安装版 `resources/plugins`；以及用户插件 `userData/plugins`，均含 `node_modules/**`），加载插件 `main` 并校验 IPC 后缀。
 - **renderer**：`App.tsx` 通过 `devdash-plugin://<id>/dist/ui.js` 动态 `import` 插件。
 - **React 注入**：构建把 `react` / `react/jsx-runtime` alias 到 host shim，运行时读 `globalThis.DevDashHost.React`。
 - **用户插件位置（安装版）**：`<workspace>/plugins/<id>/`（workspace 即 agent 工作目录 / userData）。
+- **内置插件打包**：`scripts/stage-plugins.mjs` 只带 manifest + `dist/` 到 `build/plugins/`，经 `extraResources` 落到 `<resources>/plugins/<id>/`，**不进 asar**。
 
 ## 插件清单
 
@@ -119,6 +120,7 @@ cd plugins/snake && node "<SDK>/build.mjs"
 - 新插件放入 `plugins/<name>`，workspaces 自动被扫描；用 `npm run build:plugins` 构建。
 - React alias 用**精确正则**（`/^react$/`），裸字符串会让 `react/jsx-runtime` 解析错 shim。
 - `plugins/*/dist` 不提交 git；clone / CI 后必须先 `npm install` 或 `npm run build:plugins`。
+- 打包：`npm run stage:plugins` 把 manifest + dist 拷到 `build/plugins/`，`electron-builder` 以 `extraResources` 装进 `<resources>/plugins/`（示例插件 git-manager 同理），不进主程序 asar。
 
 ```bash
 npm run typecheck

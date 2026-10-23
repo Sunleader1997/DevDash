@@ -78,7 +78,7 @@ function buildSystemAppend(): string {
 - 新建：node "${sdk}/create.mjs" <id> [--title "标题"]  → 落到 <workspace>/plugins/<id>/
 - 构建：cd plugins/<id> && node "${sdk}/build.mjs"  → 产出 dist/ui.js + dist/main.js
 - 验收：mcp__devdash__refresh_plugins（新插件/列表）→ mcp__devdash__reload_plugin_ui → dom_snapshot / screenshot
-- 安装版内置插件（如 git-manager）只有 dist，不能改其源码；需要新能力就新建用户插件。
+- 安装版内置插件（如 git-manager）在 resources/plugins，仅 dist、不能改源码；需要新能力就新建用户插件。
 - 用户插件 SDK 根目录: ${sdk}
 - 工作区根: ${root}
 `
@@ -380,6 +380,7 @@ function buildPluginContext(pluginRefs: string[]): string {
   const root = repoRoot()
   const sdk = pluginSdkRoot()
   const userPlugins = path.join(app.getPath('userData'), 'plugins')
+  const bundledPlugins = app.isPackaged ? path.join(process.resourcesPath, 'plugins') : ''
   return (
     `\n\n【插件上下文】\n` +
     pluginRefs
@@ -396,6 +397,7 @@ function buildPluginContext(pluginRefs: string[]): string {
         }
         const relWorkspace = path.relative(root, rootDir)
         const relUser = path.relative(userPlugins, rootDir)
+        const relBundled = bundledPlugins ? path.relative(bundledPlugins, rootDir) : ''
         const under = (rel: string): boolean => Boolean(rel) && !rel.startsWith('..') && !path.isAbsolute(rel)
         if (under(relWorkspace)) {
           lines.push(`  路径: ${relWorkspace}`)
@@ -410,8 +412,15 @@ function buildPluginContext(pluginRefs: string[]): string {
           lines.push(
             `  任务指引: 可修改该用户插件；构建 node "${sdk}/build.mjs"；再 mcp__devdash__refresh_plugins。`
           )
+        } else if (under(relBundled)) {
+          const abs = rootDir.replace(/\\/g, '/')
+          lines.push(`  路径: ${abs}（安装包内置插件，仅 dist）`)
+          lines.push(`  可读入口: ${abs}/package.json (devdash 清单), ${abs}/dist/`)
+          lines.push(
+            `  任务指引: 不要试图修改内置插件。需要新能力请用 node "${sdk}/create.mjs" 新建用户插件到 ${root}/plugins/<id>。`
+          )
         } else {
-          lines.push(`  路径: 安装包内（asar），本机无源码`)
+          lines.push(`  路径: 安装包内，本机无源码`)
           lines.push(
             `  任务指引: 不要试图修改内置插件源码。需要新能力请用 node "${sdk}/create.mjs" 新建用户插件到 ${root}/plugins/<id>。`
           )

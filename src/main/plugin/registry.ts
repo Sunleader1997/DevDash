@@ -121,8 +121,10 @@ export class PluginRegistry {
 
   /**
    * Discover plugins from:
-   * 1) app/plugins/<name>/package.json (in-repo plugin packages)
-   * 2) app/plugins/node_modules/** (npm-installed plugins)
+   * 1) <appPath>/plugins/<name>/package.json (dev: in-repo plugin packages)
+   * 2) <resourcesPath>/plugins/<name>/package.json (packaged built-in plugins)
+   * 3) <userData>/plugins/<name>/package.json (user plugins)
+   * plus node_modules/** under each root (npm-installed plugins).
    */
   async discover(): Promise<DevDashPluginMeta[]> {
     const bases = this.pluginRoots()
@@ -160,10 +162,14 @@ export class PluginRegistry {
 
   private pluginRoots(): string[] {
     const roots: string[] = []
-    // Preferred: <project>/plugins (dev & packaged source layout)
-    const projectPlugins = path.join(app.getAppPath(), 'plugins')
-    roots.push(projectPlugins)
-    // Fallback: alongside userData for user-installed plugins
+    if (app.isPackaged) {
+      // Built-in sample plugins ship as extraResources (outside asar).
+      roots.push(path.join(process.resourcesPath, 'plugins'))
+    } else {
+      // Dev: <project>/plugins (npm workspace source packages)
+      roots.push(path.join(app.getAppPath(), 'plugins'))
+    }
+    // User-installed plugins
     roots.push(path.join(app.getPath('userData'), 'plugins'))
     return roots
   }
