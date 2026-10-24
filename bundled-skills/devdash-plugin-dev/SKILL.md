@@ -20,6 +20,7 @@ description: DevDash 插件应用开发规范与工程约定。Use when adding o
 | 新建 | `plugins/<name>` npm workspace | `node "<SDK>/create.mjs" <id> [--title "…"]` |
 | 构建 | `npm run build:plugins` | `cd plugins/<id> && node "<SDK>/build.mjs"` |
 | 热部署 | `mcp__devdash__reload_plugin_ui` | 新建/集合变化 → `mcp__devdash__refresh_plugins`；改 UI → `reload_plugin_ui` |
+| UI 交互 | `mcp__devdash__click` / `fill` / `wait_for` … | 语义 locator（testid 优先）；无需 Playwright |
 | 改内置插件 | 改 `plugins/<src>` | **不支持**（`resources/plugins` 仅 dist）；新建用户插件 |
 
 `<SDK>` = 系统提示里写明的 plugin-sdk 路径（开发态 `<repo>/bundled-plugin-sdk`，安装版 `<resources>/plugin-sdk`）。
@@ -113,7 +114,35 @@ cd plugins/snake && node "<SDK>/build.mjs"
 ```
 
 然后调用 `mcp__devdash__refresh_plugins`（新插件进侧栏 + 注册 IPC，无需重启），
-必要时 `mcp__devdash__reload_plugin_ui`，再用 `dom_snapshot` / `screenshot` 验收。
+必要时 `mcp__devdash__reload_plugin_ui`，再用交互工具点一遍流程，用 `dom_snapshot` / `screenshot` 断言。
+
+## UI 交互与定位（无需 Playwright）
+
+定位器字段可组合，按优先级解析**唯一**元素；多匹配请传 `index`：
+
+| 优先级 | 字段 | 示例 |
+| --- | --- | --- |
+| 1 | `testid` | `{ "testid": "add-repo" }` |
+| 2 | `role` + `name` | `{ "role": "button", "name": "添加" }` |
+| 3 | `label` | `{ "label": "仓库路径" }` |
+| 4 | `text` | `{ "text": "提交" }` |
+| 5 | `css` | `{ "css": ".sidebar [data-active]" }` |
+
+常用工具：
+
+| 类别 | 工具 |
+| --- | --- |
+| 交互 | `click` `dblclick` `hover` `fill` `type` `press_key` `clear` `select_option` `check` `uncheck` `scroll_into_view` `scroll` `drag` |
+| 断言 | `query` `get_text` `get_value` `get_attr` `wait_for` `screenshot` `screenshot_element` `dom_snapshot` |
+
+约定：
+
+- 交互前自动 scrollIntoView + 可操作性检查（可见、未 disabled、中心点命中目标）。
+- 填表用 `fill`（触发 React 受控 onChange）；逐键用 `type`；提交用 `press_key` + `Enter`。
+- **拖拽交互请用 pointer/mouse 事件实现，不要用原生 HTML5 `draggable`**（合成输入下 DataTransfer 不可靠）。
+- 插件 UI 建议埋 `data-testid`，与 `dom_snapshot` 输出对齐，定位最稳。
+- 审批模式下交互类工具会请求授权；完全访问下自动放行。
+- 外部 Playwright + CDP 仅作疑难/跨应用调试的高级路径（见 playwright skill）。
 
 ## 源码仓库内置插件
 

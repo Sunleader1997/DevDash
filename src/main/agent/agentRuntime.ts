@@ -77,7 +77,7 @@ function buildSystemAppend(): string {
 - 不要寻找 DevDash 源码仓库。在这里直接开发「用户插件」。
 - 新建：node "${sdk}/create.mjs" <id> [--title "标题"]  → 落到 <workspace>/plugins/<id>/
 - 构建：cd plugins/<id> && node "${sdk}/build.mjs"  → 产出 dist/ui.js + dist/main.js
-- 验收：mcp__devdash__refresh_plugins（新插件/列表）→ mcp__devdash__reload_plugin_ui → dom_snapshot / screenshot
+- 验收：mcp__devdash__refresh_plugins（新插件/列表）→ mcp__devdash__reload_plugin_ui → click/fill/wait_for 操作 → dom_snapshot / screenshot 断言
 - 安装版内置插件（如 git-manager）在 resources/plugins，仅 dist、不能改源码；需要新能力就新建用户插件。
 - 用户插件 SDK 根目录: ${sdk}
 - 工作区根: ${root}
@@ -99,11 +99,15 @@ ${modeBlock}
 - 主进程侧 Git/路径参数一律 execFile 数组传参；用户可控 rev/range 必须校验。
 - 插件 dist/ 不作为源码提交。
 
-UI 验收工具（mcp__devdash__*，进程内 MCP）：
+UI 验收与交互工具（mcp__devdash__*，进程内 MCP，无需 Playwright）：
 - 新建插件或改了插件集合 → mcp__devdash__refresh_plugins（动态重发现，无需重启）。
 - 仅改已有插件 UI → 构建后 mcp__devdash__reload_plugin_ui 热重载。
-- 用 mcp__devdash__dom_snapshot 看结构，用 mcp__devdash__screenshot 看视觉效果。
-- mcp__devdash__cdp_info 查看 CDP；CDP 在设置里开关，改完需重启，可用外部 Playwright connectOverCDP 操作真实 DOM。
+- 定位器语义优先：testid > role+name > label > text > css；多匹配须传 index，否则报错并列候选。
+- 交互：click / dblclick / hover / fill / type / press_key / clear / select_option / check / uncheck / scroll_into_view / scroll / drag。
+- 断言：dom_snapshot / screenshot / screenshot_element / query / get_text / get_value / get_attr / wait_for。
+- 交互前会自动 scrollIntoView + 可操作性检查（可见、未 disabled、中心点命中）。
+- 拖拽用 pointer/mouse 事件实现，勿用原生 HTML5 draggable（合成输入下不可靠）。
+- mcp__devdash__cdp_info：可选高级路径（外部 Playwright connectOverCDP）；主验证请用上述进程内工具。
 
 插件开发模板要点：
 - package.json 含 devdash: { id, title, icon, ui, main, order, ipc[] }；id 为 ^[a-z0-9][a-z0-9-]*$。

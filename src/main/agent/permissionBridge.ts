@@ -1,4 +1,5 @@
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk'
+import { INTERACTIVE_DRIVE_TOOLS } from '../uiDev/interactiveTools'
 import { BrowserWindow } from 'electron'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
@@ -117,8 +118,15 @@ export function classifyTool(
   }
   if (AUTO_ALLOW_TOOLS.has(toolName)) return { autoAllow: true, dangerous: false }
 
-  // In-app UI acceptance tools (SDK MCP) — read-only capture / UI module reload.
+  // In-app UI tools (SDK MCP).
+  // Read-only capture/query stays auto-allow even in approve mode.
+  // Interaction tools (click/fill/drag/…) follow the agent access mode: full
+  // short-circuits earlier in canUseTool; approve mode requests permission.
   if (toolName.startsWith('mcp__devdash__')) {
+    const bare = toolName.slice('mcp__devdash__'.length)
+    if (INTERACTIVE_DRIVE_TOOLS.has(bare)) {
+      return { autoAllow: false, dangerous: true }
+    }
     return { autoAllow: true, dangerous: false }
   }
 
