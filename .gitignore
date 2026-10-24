@@ -15,3 +15,5 @@ release/
 build/claude-bin/
 build/plugins/
 output/playwright/
+# esbuild-wasm 接包产物：开发态用 node_modules，打包时由 extraResources 填充
+bundled-plugin-sdk/vendor/
