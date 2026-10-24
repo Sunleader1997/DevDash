@@ -1,0 +1,48 @@
+/* Dark custom cursor set — dark fill + light outline (Apple-style).
+   Declare `cursor: var(--cursor-*)` (or the .cursor-* helpers) anywhere;
+   variables inherit into plugin UI mounted in the same document. */
+
+:root {
+  --cursor-default: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M5 3.2 L5 18.2 L9.2 14.4 L11.6 20 L14.1 18.9 L11.7 13.4 L17 13.4 Z" fill="%231d1d1f" stroke="%23f5f5f7" stroke-width="1.35" stroke-linejoin="round"/></svg>') 4 3, default;
+  --cursor-pointer: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M8.2 3.2c0-.7.6-1.2 1.3-1.2s1.2.5 1.2 1.2v7.1h.4V7c0-.7.5-1.2 1.2-1.2s1.2.5 1.2 1.2v4.3h.4V8.2c0-.7.5-1.2 1.2-1.2s1.2.5 1.2 1.2v3.1h.4V10c0-.7.5-1.2 1.2-1.2s1.2.5 1.2 1.2v5.2c0 3.2-2.2 5.6-5.4 5.6h-1.2c-2.2 0-3.6-.9-4.6-2.5L4.2 13c-.4-.6-.2-1.3.3-1.7.5-.4 1.2-.3 1.7.2l2 2.2V3.2z" fill="%231d1d1f" stroke="%23f5f5f7" stroke-width="1.2" stroke-linejoin="round"/></svg>') 11 2, pointer;
+  --cursor-text: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="18" height="24" viewBox="0 0 18 24"><path d="M5 3.5h8M9 3.5v17M5 20.5h8" fill="none" stroke="%231d1d1f" stroke-width="3.2" stroke-linecap="round"/><path d="M5 3.5h8M9 3.5v17M5 20.5h8" fill="none" stroke="%23f5f5f7" stroke-width="1.35" stroke-linecap="round"/></svg>') 9 12, text;
+  --cursor-not-allowed: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.2" fill="%231d1d1f" stroke="%23f5f5f7" stroke-width="1.35"/><path d="M7.2 7.2 L16.8 16.8" stroke="%23f5f5f7" stroke-width="1.6" stroke-linecap="round"/></svg>') 12 12, not-allowed;
+  --cursor-move: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3l-2.2 2.8M12 3l2.2 2.8M12 21l-2.2-2.8M12 21l2.2-2.8M3 12l2.8-2.2M3 12l2.8 2.2M21 12l-2.8-2.2M21 12l-2.8 2.2" fill="none" stroke="%231d1d1f" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 3v18M3 12h18M12 3l-2.2 2.8M12 3l2.2 2.8M12 21l-2.2-2.8M12 21l2.2-2.8M3 12l2.8-2.2M3 12l2.8 2.2M21 12l-2.8-2.2M21 12l-2.8 2.2" fill="none" stroke="%23f5f5f7" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round"/></svg>') 12 12, move;
+  --cursor-grab: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M9 11V6.2a1.2 1.2 0 0 1 2.4 0V11M11.4 10.5V5.2a1.2 1.2 0 0 1 2.4 0V11M13.8 11V6.5a1.2 1.2 0 0 1 2.4 0V12M16.2 12V8.5a1.2 1.2 0 0 1 2.4 0v5.3c0 3.4-2.4 5.8-5.8 5.8h-.8c-2.2 0-3.8-1-4.9-2.6L5 12.5a1.3 1.3 0 0 1 2-1.6L9 13V11z" fill="%231d1d1f" stroke="%23f5f5f7" stroke-width="1.15" stroke-linejoin="round"/></svg>') 12 6, grab;
+  --cursor-grabbing: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M8.2 10.2c0-.9.7-1.5 1.5-1.5h.2V7.2a1.2 1.2 0 0 1 2.4 0v1.5h.4V7a1.2 1.2 0 0 1 2.4 0v1.7h.4V8.2a1.2 1.2 0 0 1 2.4 0v1.6h.3v-.8a1.15 1.15 0 0 1 2.3 0v5c0 3.4-2.3 5.7-5.6 5.7h-1.1c-2.1 0-3.6-1-4.7-2.6L5.3 13a1.25 1.25 0 0 1 1.9-1.6l1 1.1v-2.3z" fill="%231d1d1f" stroke="%23f5f5f7" stroke-width="1.15" stroke-linejoin="round"/></svg>') 12 6, grabbing;
+  --cursor-crosshair: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="%231d1d1f" stroke-width="2.6"/><circle cx="12" cy="12" r="3.2" fill="none" stroke="%23f5f5f7" stroke-width="1.15"/><path d="M12 2.5v5M12 16.5v5M2.5 12h5M16.5 12h5" stroke="%231d1d1f" stroke-width="2.6" stroke-linecap="round"/><path d="M12 2.5v5M12 16.5v5M2.5 12h5M16.5 12h5" stroke="%23f5f5f7" stroke-width="1.15" stroke-linecap="round"/></svg>') 12 12, crosshair;
+  --cursor-col-resize: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M4 12h16M8.5 7 4 12l4.5 5M15.5 7 20 12l-4.5 5" fill="none" stroke="%231d1d1f" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 12h16M8.5 7 4 12l4.5 5M15.5 7 20 12l-4.5 5" fill="none" stroke="%23f5f5f7" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>') 12 12, col-resize;
+  --cursor-row-resize: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M12 4v16M7 8.5 12 4l5 4.5M7 15.5 12 20l5-4.5" fill="none" stroke="%231d1d1f" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 4v16M7 8.5 12 4l5 4.5M7 15.5 12 20l5-4.5" fill="none" stroke="%23f5f5f7" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>') 12 12, row-resize;
+  --cursor-ew-resize: var(--cursor-col-resize);
+  --cursor-ns-resize: var(--cursor-row-resize);
+  --cursor-nwse-resize: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M5 5l14 14M5 5v5M5 5h5M19 19v-5M19 19h-5" fill="none" stroke="%231d1d1f" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 5l14 14M5 5v5M5 5h5M19 19v-5M19 19h-5" fill="none" stroke="%23f5f5f7" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>') 12 12, nwse-resize;
+  --cursor-nesw-resize: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M19 5L5 19M19 5v5M19 5h-5M5 19v-5M5 19h5" fill="none" stroke="%231d1d1f" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 5L5 19M19 5v5M19 5h-5M5 19v-5M5 19h5" fill="none" stroke="%23f5f5f7" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>') 12 12, nesw-resize;
+  --cursor-wait: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.2" fill="%231d1d1f" stroke="%23f5f5f7" stroke-width="1.35"/><path d="M12 7.2v5l3 2" fill="none" stroke="%23f5f5f7" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>') 12 12, wait;
+  --cursor-progress: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M5 3.2 L5 18.2 L9.2 14.4 L11.6 20 L14.1 18.9 L11.7 13.4 L17 13.4 Z" fill="%231d1d1f" stroke="%23f5f5f7" stroke-width="1.35" stroke-linejoin="round"/><circle cx="18.5" cy="18.5" r="4.2" fill="%231d1d1f" stroke="%23f5f5f7" stroke-width="1.1"/><path d="M18.5 15.6v3l2 1.2" fill="none" stroke="%23f5f5f7" stroke-width="1.2" stroke-linecap="round"/></svg>') 4 3, progress;
+  --cursor-help: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M5 3.2 L5 18.2 L9.2 14.4 L11.6 20 L14.1 18.9 L11.7 13.4 L17 13.4 Z" fill="%231d1d1f" stroke="%23f5f5f7" stroke-width="1.35" stroke-linejoin="round"/><circle cx="18.5" cy="18.5" r="4.6" fill="%231d1d1f" stroke="%23f5f5f7" stroke-width="1.1"/><text x="18.5" y="21.2" text-anchor="middle" font-size="7.5" font-family="system-ui,sans-serif" font-weight="700" fill="%23f5f5f7">?</text></svg>') 4 3, help;
+}
+
+html,
+body,
+#root {
+  cursor: var(--cursor-default);
+}
+
+/* Optional helpers for markup / CSS-in-JS */
+.cursor-default { cursor: var(--cursor-default); }
+.cursor-pointer { cursor: var(--cursor-pointer); }
+.cursor-text { cursor: var(--cursor-text); }
+.cursor-not-allowed { cursor: var(--cursor-not-allowed); }
+.cursor-col-resize { cursor: var(--cursor-col-resize); }
+.cursor-row-resize { cursor: var(--cursor-row-resize); }
+.cursor-move { cursor: var(--cursor-move); }
+.cursor-grab { cursor: var(--cursor-grab); }
+.cursor-grabbing { cursor: var(--cursor-grabbing); }
+.cursor-crosshair { cursor: var(--cursor-crosshair); }
+.cursor-wait { cursor: var(--cursor-wait); }
+.cursor-progress { cursor: var(--cursor-progress); }
+.cursor-help { cursor: var(--cursor-help); }
+.cursor-ew-resize { cursor: var(--cursor-ew-resize); }
+.cursor-ns-resize { cursor: var(--cursor-ns-resize); }
+.cursor-nwse-resize { cursor: var(--cursor-nwse-resize); }
+.cursor-nesw-resize { cursor: var(--cursor-nesw-resize); }

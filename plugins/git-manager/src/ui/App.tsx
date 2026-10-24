@@ -547,7 +547,7 @@ function GitManagerApp(): JSX.Element {
               <div key={p.id} style={{ marginBottom: 6 }}>
                 <div
                   className="gm-row"
-                  style={{ cursor: 'default' }}
+                  style={{ cursor: 'var(--cursor-default)' }}
                   onContextMenu={(e) => {
                     e.preventDefault?.()
                     e.stopPropagation?.()
@@ -2227,7 +2227,7 @@ function FileBlocked({
                 gap: 8,
                 marginBottom: 14,
                 fontSize: 12,
-                cursor: 'pointer'
+                cursor: 'var(--cursor-pointer)'
               }}
             >
               <input type="checkbox" checked={addWl} onChange={(e) => setAddWl(e.target.checked)} />

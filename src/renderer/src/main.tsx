@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import './design/tokens.css'
+import './design/cursors.css'
 import type { DevDashHostGlobals } from './hostApi'
 import { taskBus } from './shell/taskBus'
 

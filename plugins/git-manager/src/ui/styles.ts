@@ -211,7 +211,7 @@ export const pluginCss = `
 }
 .gm-btn:disabled {
   opacity: 0.55;
-  cursor: not-allowed;
+  cursor: var(--cursor-not-allowed);
 }
 .gm-btn.ghost { border-color: transparent; background: transparent; }
 .gm-btn.ghost:hover { background: var(--bg-hover); }
@@ -288,7 +288,7 @@ export const pluginCss = `
   padding: 8px 12px;
   border-bottom: 1px solid var(--separator);
   font-size: 12px;
-  cursor: pointer;
+  cursor: var(--cursor-pointer);
 }
 .gm-commit-row {
   display: flex;
@@ -298,7 +298,7 @@ export const pluginCss = `
   padding: 5px 12px;
   font-family: var(--font-mono, monospace);
   font-size: 12px;
-  cursor: pointer;
+  cursor: var(--cursor-pointer);
   white-space: nowrap;
 }
 .gm-commit-row:hover {
@@ -310,7 +310,7 @@ export const pluginCss = `
 }
 .gm-commit-row input[type='checkbox'] {
   flex-shrink: 0;
-  cursor: pointer;
+  cursor: var(--cursor-pointer);
 }
 .gm-commit-dir {
   color: var(--fg-tertiary);
@@ -598,7 +598,7 @@ export const pluginCss = `
   text-align: left;
   padding: 8px 12px;
   border-bottom: 1px solid var(--separator);
-  cursor: pointer;
+  cursor: var(--cursor-pointer);
 }
 .gm-commit:hover { background: var(--bg-hover); }
 .gm-commit.active { background: var(--accent-soft); }
@@ -634,7 +634,7 @@ export const pluginCss = `
   border-radius: 6px;
   background: transparent;
   color: var(--fg-secondary);
-  cursor: pointer;
+  cursor: var(--cursor-pointer);
   opacity: 0;
   transition: opacity 120ms ease;
 }
@@ -820,7 +820,7 @@ export const pluginCss = `
 }
 .gm-splitter {
   width: 5px;
-  cursor: col-resize;
+  cursor: var(--cursor-col-resize);
   background: transparent;
   position: relative;
   z-index: 3;
@@ -839,7 +839,7 @@ export const pluginCss = `
 .gm-splitter.vertical {
   width: 100%;
   height: 5px;
-  cursor: row-resize;
+  cursor: var(--cursor-row-resize);
 }
 .gm-splitter.vertical::after {
   inset: 2px 0;
@@ -853,7 +853,7 @@ export const pluginCss = `
   border: 1px solid var(--separator);
   background: var(--bg-hover);
   font-size: 12px;
-  cursor: pointer;
+  cursor: var(--cursor-pointer);
   user-select: none;
 }
 .gm-toggle input {
@@ -973,7 +973,7 @@ export const pluginCss = `
   border-radius: 10px;
   background: transparent;
   color: var(--fg);
-  cursor: pointer;
+  cursor: var(--cursor-pointer);
   transition: transform 100ms ease-out, background 120ms ease;
   font: inherit;
 }
@@ -1186,7 +1186,7 @@ export const pluginCss = `
   border-radius: 8px;
   font-size: 12px;
   white-space: nowrap;
-  cursor: pointer;
+  cursor: var(--cursor-pointer);
   color: var(--fg-secondary);
   flex: 0 0 auto;
   min-width: 120px;

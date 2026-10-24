@@ -83,7 +83,7 @@ export function PluginSidebar({
                 border: 'none',
                 background: 'transparent',
                 color: 'inherit',
-                cursor: 'pointer',
+                cursor: 'var(--cursor-pointer)',
                 textAlign: 'left',
                 padding: 0,
                 font: 'inherit'

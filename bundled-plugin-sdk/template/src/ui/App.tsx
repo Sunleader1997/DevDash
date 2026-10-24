@@ -7,7 +7,7 @@ const styles = `
 .dp-desc { opacity: 0.7; margin: 0 0 16px; }
 .dp-btn {
   border: 1px solid rgba(0,0,0,0.15); background: rgba(255,255,255,0.6);
-  border-radius: 8px; padding: 8px 14px; cursor: pointer; font: inherit;
+  border-radius: 8px; padding: 8px 14px; cursor: var(--cursor-pointer); font: inherit;
 }
 .dp-btn:hover { background: rgba(255,255,255,0.9); }
 .dp-out { margin-top: 12px; opacity: 0.8; white-space: pre-wrap; }

@@ -170,7 +170,7 @@
   background: transparent;
   border: none;
   color: var(--fg-tertiary);
-  cursor: pointer;
+  cursor: var(--cursor-pointer);
   text-align: left;
   font-size: 11.5px;
   box-sizing: border-box;
@@ -350,7 +350,7 @@
   word-break: break-word;
   user-select: text;
   -webkit-user-select: text;
-  cursor: text;
+  cursor: var(--cursor-text);
 }
 
 .msg-refs {
@@ -523,7 +523,7 @@
   border: none;
   background: transparent;
   color: inherit;
-  cursor: pointer;
+  cursor: var(--cursor-pointer);
   padding: 0 2px;
   font-size: 14px;
   line-height: 1;
@@ -555,7 +555,7 @@
   color: var(--fg);
   padding: 8px 10px;
   border-radius: var(--radius-sm);
-  cursor: pointer;
+  cursor: var(--cursor-pointer);
   font-size: 12.5px;
 }
 
@@ -738,7 +738,7 @@
   gap: 6px;
   font-size: 12px;
   color: var(--fg-secondary);
-  cursor: pointer;
+  cursor: var(--cursor-pointer);
 }
 
 .btn-primary,
@@ -748,7 +748,7 @@
 .btn-icon {
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
-  cursor: pointer;
+  cursor: var(--cursor-pointer);
   font: inherit;
   font-size: 12.5px;
   padding: 6px 12px;
@@ -762,7 +762,7 @@
 
 .btn-primary:disabled {
   opacity: 0.5;
-  cursor: default;
+  cursor: var(--cursor-default);
 }
 
 .btn-secondary {
@@ -844,7 +844,7 @@
   font-size: 12.5px;
   font-weight: 600;
   padding: 8px 10px;
-  cursor: pointer;
+  cursor: var(--cursor-pointer);
 }
 
 .sidebar-new-task:hover {
@@ -884,7 +884,7 @@
   color: var(--fg);
   padding: 7px 10px;
   border-radius: var(--radius-sm);
-  cursor: pointer;
+  cursor: var(--cursor-pointer);
   font-size: 12.5px;
 }
 
@@ -952,7 +952,7 @@
   border: none;
   background: transparent;
   color: var(--fg-tertiary);
-  cursor: pointer;
+  cursor: var(--cursor-pointer);
   opacity: 0.35;
   padding: 0 4px;
   font-size: 13px;
@@ -1072,7 +1072,7 @@
   line-height: 1;
   padding: 3px 6px;
   border-radius: 4px;
-  cursor: pointer;
+  cursor: var(--cursor-pointer);
   user-select: none;
   -webkit-user-select: none;
 }
@@ -1095,7 +1095,7 @@
   overflow: auto;
   user-select: text;
   -webkit-user-select: text;
-  cursor: text;
+  cursor: var(--cursor-text);
 }
 
 .composer-input {
@@ -1155,7 +1155,7 @@
   color: var(--fg-secondary);
   font-size: 11.5px;
   padding: 5px 10px;
-  cursor: pointer;
+  cursor: var(--cursor-pointer);
   white-space: nowrap;
 }
 
@@ -1182,7 +1182,7 @@
   color: var(--fg-secondary);
   font-size: 11.5px;
   padding: 0 8px;
-  cursor: pointer;
+  cursor: var(--cursor-pointer);
   outline: none;
   max-width: 140px;
 }
@@ -1200,7 +1200,7 @@
   background: transparent;
   color: var(--fg-secondary);
   font-size: 11.5px;
-  cursor: pointer;
+  cursor: var(--cursor-pointer);
   font-family: var(--font-mono);
 }
 
@@ -1294,7 +1294,7 @@
   color: var(--fg);
   font-size: 13px;
   text-align: left;
-  cursor: pointer;
+  cursor: var(--cursor-pointer);
 }
 
 .settings-nav-item:hover {
@@ -1437,7 +1437,7 @@
   padding: 3px 10px;
   font-size: 11px;
   font-family: var(--font-mono);
-  cursor: pointer;
+  cursor: var(--cursor-pointer);
 }
 
 .model-chip:hover {
@@ -1619,7 +1619,7 @@
   border: none;
   background: transparent;
   color: var(--fg);
-  cursor: pointer;
+  cursor: var(--cursor-pointer);
   text-align: left;
 }
 
@@ -1802,7 +1802,7 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  cursor: default;
+  cursor: var(--cursor-default);
 }
 
 .ctx-ring-label {
@@ -1848,7 +1848,7 @@
   border: 1px solid var(--separator);
   background: #ffffff;
   color: var(--fg);
-  cursor: pointer;
+  cursor: var(--cursor-pointer);
   text-align: left;
 }
 
