@@ -17,6 +17,13 @@ export type RefreshPluginsResult = {
 export async function refreshPlugins(): Promise<RefreshPluginsResult> {
   const list = await pluginRegistry.discover()
   await pluginRegistry.loadAllMains()
+  // Domain tools registered during activate() must reach live agent sessions.
+  try {
+    const { pushPluginToolServers } = await import('../agent/agentRuntime')
+    await pushPluginToolServers()
+  } catch (e) {
+    console.warn('[refreshPlugins] pushPluginToolServers failed', e)
+  }
   return {
     count: list.length,
     plugins: list.map((m) => ({

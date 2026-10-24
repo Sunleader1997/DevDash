@@ -17,10 +17,35 @@ import {
 } from './store/settingsStore'
 import { repoWatcherRegistry } from './git/repoWatcher'
 
+export interface PluginToolParam {
+  type: 'string' | 'number' | 'boolean' | 'enum' | 'array' | 'object'
+  description?: string
+  required?: boolean
+  values?: string[]
+  items?: PluginToolParam
+  properties?: Record<string, PluginToolParam>
+}
+
+export interface PluginToolDef {
+  name: string
+  description: string
+  params?: Record<string, PluginToolParam>
+  annotations?: {
+    readOnlyHint?: boolean
+    destructiveHint?: boolean
+    idempotentHint?: boolean
+    openWorldHint?: boolean
+  }
+}
+
 export interface PluginMainContext {
   appPath: string
   userDataPath: string
   registerIpc: (suffix: string, handler: (...args: unknown[]) => Promise<unknown>) => void
+  registerTool: (
+    def: PluginToolDef,
+    handler: (args: Record<string, unknown>) => Promise<unknown>
+  ) => void
 }
 
 export default {
@@ -125,6 +150,57 @@ export default {
     r('git:watch:stop', async (repoPath) => {
       repoWatcherRegistry.stop(repoPath as string)
     })
+
+    // Agent domain tools — same gitService handlers as UI IPC.
+    ctx.registerTool(
+      {
+        name: 'git_status',
+        description: '查看仓库工作区状态（porcelain），返回变更文件列表与状态分类。',
+        params: {
+          repoPath: { type: 'string', description: '仓库根路径', required: true }
+        },
+        annotations: { readOnlyHint: true }
+      },
+      async (args) => gitService.status(String(args.repoPath))
+    )
+
+    ctx.registerTool(
+      {
+        name: 'git_log',
+        description: '查看提交历史，返回 hash/author/date/message 列表。',
+        params: {
+          repoPath: { type: 'string', description: '仓库根路径', required: true },
+          limit: { type: 'number', description: '最多返回条数，默认 50' },
+          skip: { type: 'number', description: '跳过条数，默认 0' }
+        },
+        annotations: { readOnlyHint: true }
+      },
+      async (args) =>
+        gitService.log(String(args.repoPath), Number(args.limit ?? 50), Number(args.skip ?? 0))
+    )
+
+    ctx.registerTool(
+      {
+        name: 'git_commit',
+        description: '提交指定路径的变更。message 必填；paths 省略表示提交全部已暂存。',
+        params: {
+          repoPath: { type: 'string', description: '仓库根路径', required: true },
+          message: { type: 'string', description: '提交说明', required: true },
+          paths: {
+            type: 'array',
+            description: '相对仓库的文件路径列表',
+            items: { type: 'string' }
+          }
+        },
+        annotations: { idempotentHint: true }
+      },
+      async (args) =>
+        gitService.commit(
+          String(args.repoPath),
+          String(args.message),
+          Array.isArray(args.paths) ? (args.paths as unknown[]).map(String) : undefined
+        )
+    )
   },
   async deactivate(): Promise<void> {
     repoWatcherRegistry.stopAll()

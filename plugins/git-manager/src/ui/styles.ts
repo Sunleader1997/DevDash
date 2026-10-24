@@ -141,14 +141,26 @@ export const pluginCss = `
   gap: 10px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--separator);
-  background: color-mix(in srgb, var(--bg-elevated, rgba(255,255,255,0.72)) 88%, transparent);
-  backdrop-filter: var(--blur);
+  background: var(--bg);
   min-height: 42px;
 }
-.gm-title {
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  font-size: 13px;
+.gm-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--fg-secondary);
+  font-size: 11px;
+  max-width: 36%;
+  min-width: 0;
+}
+.gm-branch span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gm-branch svg {
+  flex-shrink: 0;
+  opacity: 0.75;
 }
 .gm-spacer { flex: 1; }
 .gm-btn {

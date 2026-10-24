@@ -267,11 +267,12 @@ export default function App(): JSX.Element {
       ? 'Agent 任务'
       : activePlugin
         ? activePlugin.meta.title
-        : 'DevDash'
+        : ''
 
   return (
     <div className="app-shell">
       <header className="app-titlebar">
+        <div className="titlebar-drag-shield" aria-hidden="true" />
         {window.devdash.platform !== 'darwin' && (
           <div className="traffic-lights">
             <button
@@ -294,9 +295,7 @@ export default function App(): JSX.Element {
         <div className="titlebar-drag">
           <div className="titlebar-brand">
             <span className="titlebar-dot" />
-            <span className="titlebar-name">DevDash</span>
-            <span className="titlebar-sep">/</span>
-            <span className="titlebar-page">{titlePage}</span>
+            {titlePage ? <span className="titlebar-name">{titlePage}</span> : null}
           </div>
         </div>
       </header>

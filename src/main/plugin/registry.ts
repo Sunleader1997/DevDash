@@ -3,9 +3,12 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { DevDashPluginMeta } from '../../renderer/src/hostApi'
+import { toolRegistry, type PluginToolDef, type PluginToolHandler } from './toolRegistry'
 
 const IPC_SUFFIX_RE = /^[A-Za-z0-9:._-]+$/
 const PLUGIN_ID_RE = /^[a-z0-9][a-z0-9-]*$/
+/** Host MCP server name — plugins must not claim this id. */
+const RESERVED_PLUGIN_IDS = new Set(['devdash'])
 /** Host-owned channel names — plugins must not claim these. */
 const HOST_CHANNEL_NAMES = new Set([
   'plugin:list',
@@ -44,6 +47,8 @@ export interface PluginMainContext {
   appPath: string
   userDataPath: string
   registerIpc: (suffix: string, handler: (...args: unknown[]) => Promise<unknown>) => void
+  /** Register an agent-facing domain tool → `mcp__<plugin-id>__<tool>`. */
+  registerTool: (def: PluginToolDef, handler: PluginToolHandler) => void
 }
 
 async function readManifest(file: string): Promise<PackageManifest | null> {
@@ -58,6 +63,10 @@ function toMeta(rootDir: string, pkg: PackageManifest): DevDashPluginMeta | null
   const d = pkg.devdash
   if (!d?.id || !d.title) return null
   if (!PLUGIN_ID_RE.test(d.id)) return null
+  if (RESERVED_PLUGIN_IDS.has(d.id)) {
+    console.warn(`[plugin] reserved plugin id rejected: ${d.id} (${rootDir})`)
+    return null
+  }
   const uiRel = d.ui ?? pkg.main ?? 'dist/ui.js'
   const mainRel = d.main
   const ipcSuffixes = Array.isArray(d.ipc)
@@ -157,6 +166,12 @@ export class PluginRegistry {
       if (!byId.has(m.id)) byId.set(m.id, m)
     }
     this.cache = [...byId.values()].sort((a, b) => (a.order ?? 100) - (b.order ?? 100) || a.title.localeCompare(b.title))
+
+    // Evict tools for plugins that disappeared from discovery.
+    const live = new Set(this.cache.map((m) => m.id))
+    for (const id of toolRegistry.pluginIds()) {
+      if (!live.has(id)) toolRegistry.clearPluginTools(id)
+    }
     return this.cache
   }
 
@@ -215,6 +230,8 @@ export class PluginRegistry {
       }
     } catch (error) {
       this.loadedMain.delete(meta.id)
+      // Drop partial tool registrations so a retry can re-register cleanly.
+      toolRegistry.clearPluginTools(meta.id)
       console.error(`[plugin:${meta.id}] main activate failed`, error)
     }
   }
@@ -231,6 +248,9 @@ export class PluginRegistry {
       userDataPath: app.getPath('userData'),
       registerIpc: (suffix, handler) => {
         this.registerIpc(meta, suffix, handler)
+      },
+      registerTool: (def, handler) => {
+        toolRegistry.register(meta.id, def, handler)
       }
     }
   }

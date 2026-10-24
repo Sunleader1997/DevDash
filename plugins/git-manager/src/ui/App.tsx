@@ -1278,7 +1278,6 @@ function RepoWorkspace({
 }): JSX.Element {
   const [view, setView] = useState<'files' | 'history' | 'settings'>('files')
   const [branches, setBranches] = useState<BranchInfo[]>([])
-  const [branchOpen, setBranchOpen] = useState(false)
   const [status, setStatus] = useState<StatusEntry[]>([])
   const [files, setFiles] = useState<string[]>([])
   const [treeExpanded, setTreeExpanded] = useState<Record<string, boolean>>({})
@@ -1638,18 +1637,6 @@ function RepoWorkspace({
     }
   }
 
-  const switchBranch = async (name: string) => {
-    try {
-      await api.tasks(`checkout-${name}`, `切换分支 ${name}`, () => api.checkout(repo.path, name))
-      setBranchOpen(false)
-      await refreshBranches()
-      await refreshStatus()
-      onToast(`已切换到 ${name}`)
-    } catch (e) {
-      onToast((e as Error).message, true)
-    }
-  }
-
   const commitableFiles = useMemo(() => {
     return files.filter((f) => {
       const st = statusByPath.get(f)
@@ -1711,37 +1698,9 @@ function RepoWorkspace({
         </div>
       )}
       <header className="gm-titlebar">
-        <div className="gm-title">{repo.name}</div>
-        <div className="gm-rel">
-          <button className="gm-btn icon" title={repo.branch || 'detached'} onClick={() => setBranchOpen((v) => !v)}>
-            <IconBranch />
-            <span>{repo.branch || 'HEAD'}</span>
-            <span style={{ opacity: 0.5, fontSize: 10 }}>▾</span>
-          </button>
-          {branchOpen && (
-            <>
-              <div
-                className="gm-menu-backdrop"
-                onClick={() => setBranchOpen(false)}
-                onContextMenu={(e) => {
-                  e.preventDefault?.()
-                  setBranchOpen(false)
-                }}
-              />
-              <div className="gm-dropdown">
-                {branches.map((b) => (
-                  <button
-                    key={b.name}
-                    className={cx(b.name === repo.branch && 'active')}
-                    onClick={() => void switchBranch(b.name)}
-                  >
-                    {b.current ? '✓ ' : ''}
-                    {b.name}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
+        <div className="gm-branch" title={repo.branch || 'detached'}>
+          <IconBranch />
+          <span>{repo.branch || 'HEAD'}</span>
         </div>
         <div className="gm-seg">
           <button className={cx(view === 'files' && 'active')} onClick={() => setView('files')}>

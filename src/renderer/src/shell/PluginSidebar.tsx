@@ -63,6 +63,9 @@ export function PluginSidebar({
   return (
     <aside className="sidebar">
       <div className="sidebar-top">
+        <div className="sidebar-brand" aria-label="DevDash">
+          DevDash
+        </div>
         <button className="sidebar-new-task" onClick={onNewTask}>
           ＋ 新建任务
         </button>
@@ -143,7 +146,7 @@ export function PluginSidebar({
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((v) => !v)}
           >
-            DevDash
+            菜单
             <svg className="footer-brand-caret" viewBox="0 0 8 8" aria-hidden="true">
               <path d="M2 3 L4 5 L6 3" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
             </svg>

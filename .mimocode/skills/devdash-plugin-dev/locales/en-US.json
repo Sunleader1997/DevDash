@@ -1,4 +1,4 @@
 {
   "displayName": "DevDash Plugin Dev",
-  "brief": "Conventions for DevDash sub-app plugins: manifests, host loading, IPC, and Git UI rules"
+  "brief": "Conventions for DevDash sub-app plugins: manifests, host loading, IPC, Agent tools, and Git UI rules"
 }

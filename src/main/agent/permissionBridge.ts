@@ -1,5 +1,6 @@
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk'
 import { INTERACTIVE_DRIVE_TOOLS } from '../uiDev/interactiveTools'
+import { toolRegistry } from '../plugin/toolRegistry'
 import { BrowserWindow } from 'electron'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
@@ -128,6 +129,23 @@ export function classifyTool(
       return { autoAllow: false, dangerous: true }
     }
     return { autoAllow: true, dangerous: false }
+  }
+
+  // Plugin domain tools: mcp__<plugin-id>__<tool>
+  if (toolName.startsWith('mcp__')) {
+    const reg = toolRegistry.getByMcpName(toolName)
+    if (reg) {
+      const a = reg.def.annotations ?? {}
+      if (a.destructiveHint === true) {
+        return { autoAllow: false, dangerous: true }
+      }
+      if (a.readOnlyHint === true) {
+        return { autoAllow: true, dangerous: false }
+      }
+      // State-changing (incl. idempotent-only): prompt, can session-remember.
+      return { autoAllow: false, dangerous: false }
+    }
+    return { autoAllow: false, dangerous: true }
   }
 
   if (toolName === 'Bash') {

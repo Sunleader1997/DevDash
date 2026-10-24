@@ -96,6 +96,8 @@ ${modeBlock}
 - 禁止创建 .worktree、禁止新建功能分支，直接在当前工作目录修改。
 - 插件必须通过 package.json 的 devdash 清单被发现；不要把插件 UI 硬编码进宿主 React 树。
 - 新增 IPC 通道三处同步：清单 devdash.ipc → 插件 main registerIpc → 插件 ui api.ts。
+- 插件可在 main activate() 里 ctx.registerTool 暴露领域工具（mcp__<id>__<tool>）；领域操作优先走 tool，UI 工具仅视觉验收。
+- Agent Tool 两处同步：registerTool(def, handler) + description/annotations；无需写入 devdash.ipc。
 - 主进程侧 Git/路径参数一律 execFile 数组传参；用户可控 rev/range 必须校验。
 - 插件 dist/ 不作为源码提交。
 
@@ -113,6 +115,7 @@ UI 验收与交互工具（mcp__devdash__*，进程内 MCP，无需 Playwright�
 - package.json 含 devdash: { id, title, icon, ui, main, order, ipc[] }；id 为 ^[a-z0-9][a-z0-9-]*$。
 - UI 默认导出 { id, title, icon?, App }；react 由宿主注入（SDK shim / vite alias 到 host-react）。
 - 用户插件构建用 node <sdk>/build.mjs（esbuild-wasm，无需本机安装 vite）。
+- 领域能力写在 main：ctx.registerTool 暴露给 agent（如 git_status/git_log/git_commit），与 IPC 共用领域模块；params.type 仅 string/number/boolean/enum/array/object。
 `
 }
 
@@ -407,7 +410,7 @@ function buildPluginContext(pluginRefs: string[]): string {
           lines.push(`  路径: ${relWorkspace}`)
           lines.push(`  可读入口: ${relWorkspace}/package.json (devdash 清单), ${relWorkspace}/src/`)
           lines.push(
-            `  任务指引: 可修改该插件源码；构建后 refresh_plugins / reload_plugin_ui；IPC 三处同步（清单 devdash.ipc / main registerIpc / ui api.ts）。`
+            `  任务指引: 可修改该插件源码；构建后 refresh_plugins / reload_plugin_ui；IPC 三处同步（清单 devdash.ipc / main registerIpc / ui api.ts）；Agent Tool 两处同步（registerTool + description/annotations），领域操作优先用 mcp__<id>__*。`
           )
         } else if (under(relUser)) {
           const abs = rootDir.replace(/\\/g, '/')
@@ -732,7 +735,7 @@ async function startSession(
   })()
 
   const { query } = await import('@anthropic-ai/claude-agent-sdk')
-  const { createDevDashMcpServer } = await import('./devTools')
+  const { buildAllToolServers, pluginAllowPrefixes } = await import('./pluginToolServers')
 
   const canUseTool: CanUseTool = async (toolName, input, options): Promise<PermissionResult> => {
     const sess = active.get(taskId)
@@ -805,11 +808,9 @@ async function startSession(
       skills: 'all',
       includePartialMessages: true,
       abortController: abort,
-      // In-app UI acceptance tools (screenshot / snapshot / reload / cdp_info).
-      mcpServers: {
-        devdash: createDevDashMcpServer()
-      },
-      allowedTools: ['mcp__devdash__*'],
+      // Host UI tools (mcp__devdash__*) + per-plugin domain tools (mcp__<id>__*).
+      mcpServers: buildAllToolServers() as never,
+      allowedTools: ['mcp__devdash__*', ...pluginAllowPrefixes()],
       // Always attach canUseTool so mid-session setPermissionMode('default') keeps prompts.
       canUseTool,
       permissionMode: fullAccess ? 'bypassPermissions' : 'default',
@@ -973,6 +974,15 @@ export async function switchAccessMode(
 /** Remember a tool for the rest of this session ("允许并记住本会话"). */
 export function allowToolForSession(taskId: string, toolName: string): void {
   active.get(taskId)?.sessionAllowedTools.add(toolName)
+}
+
+/**
+ * After plugin discovery / tool registration changes, replace the dynamic
+ * MCP table on every live session (host `devdash` + all plugin servers).
+ */
+export async function pushPluginToolServers(): Promise<void> {
+  const { pushToolServersToAllSessions } = await import('./pluginToolServers')
+  await pushToolServersToAllSessions(active.values())
 }
 
 // Wire permissionBridge → session allowlist without a dynamic import cycle.

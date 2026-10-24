@@ -173,9 +173,18 @@ button:disabled {
 .app-titlebar textarea,
 .app-titlebar select,
 .app-titlebar label,
-.app-titlebar a,
-.app-titlebar .traffic-lights {
+.app-titlebar a {
   -webkit-app-region: no-drag;
+}
+
+/* Full-bleed drag shield. Parent has backdrop-filter, which can break
+   app-region hit testing — this child covers every pixel of the header. */
+.titlebar-drag-shield {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  -webkit-app-region: drag;
+  pointer-events: none;
 }
 
 /* macOS traffic lights occupy the leading inset */
@@ -195,8 +204,10 @@ html[data-platform='linux'] .app-titlebar {
   align-items: center;
   gap: 8px;
   padding: 0 14px 0 12px;
-  -webkit-app-region: no-drag;
+  -webkit-app-region: drag;
   flex-shrink: 0;
+  position: relative;
+  z-index: 1;
 }
 
 .tl {
@@ -250,6 +261,8 @@ html[data-platform='linux'] .app-titlebar {
   align-items: center;
   min-width: 0;
   -webkit-app-region: drag;
+  position: relative;
+  z-index: 1;
 }
 
 .titlebar-brand {
