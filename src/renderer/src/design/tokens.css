@@ -161,6 +161,23 @@ button:disabled {
   padding-right: 8px;
 }
 
+/* -webkit-app-region is not inherited — mark every non-interactive
+   descendant as drag so text/empty flex cells don't punch holes. */
+.app-titlebar,
+.app-titlebar * {
+  -webkit-app-region: drag;
+}
+
+.app-titlebar button,
+.app-titlebar input,
+.app-titlebar textarea,
+.app-titlebar select,
+.app-titlebar label,
+.app-titlebar a,
+.app-titlebar .traffic-lights {
+  -webkit-app-region: no-drag;
+}
+
 /* macOS traffic lights occupy the leading inset */
 html[data-platform='darwin'] .app-titlebar {
   padding-left: 78px;
