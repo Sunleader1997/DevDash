@@ -16,6 +16,7 @@ import type {
 import { buildEnvForModel, loadSettings, pickModel, settingsEnvForModel } from './modelConfig'
 import * as sessionStore from './sessionStore'
 import { classifyTool, denyAllPending, requestPermission, setAllowToolForSession } from './permissionBridge'
+import { interruptSpeaking, speakAssistantText } from './ttsService'
 import { pluginRegistry } from '../plugin/registry'
 import { buildSkillContext, listSkills } from './skills'
 import { repoRoot } from './repoRoot'
@@ -379,6 +380,9 @@ function extractUsage(message: SDKMessage): { used: number; max?: number } | nul
 
 function emitMessage(msg: ChatMessage): Promise<void> {
   broadcast({ type: 'message', taskId: msg.taskId, message: msg })
+  if (msg.role === 'assistant' && msg.text && !msg.streaming) {
+    void speakAssistantText(msg.text, { taskId: msg.taskId, messageId: msg.id })
+  }
   return Promise.resolve()
 }
 
@@ -505,6 +509,8 @@ async function consumeStream(
                 streaming: true
               }
               session.pendingAssistantId = msg.id
+              // New streaming turn — stop any previous TTS playback (S2.4.3).
+              interruptSpeaking()
               await sessionStore.appendMessage(taskId, msg)
               await emitMessage(msg)
             } else {
@@ -545,6 +551,12 @@ async function consumeStream(
             text: finalText,
             streaming: false
           })
+          if (finalText) {
+            void speakAssistantText(finalText, {
+              taskId,
+              messageId: session.pendingAssistantId
+            })
+          }
           session.pendingAssistantId = undefined
           session.streamBuffer = ''
         } else if (text) {
@@ -637,6 +649,7 @@ async function consumeStream(
         const failed = (message as { is_error?: boolean; subtype?: string }).is_error === true
         // Never overwrite assistant body with result.result (spec: result 不得覆盖正文).
         if (session.pendingAssistantId) {
+          const leftover = session.streamBuffer
           await sessionStore.replaceMessage(taskId, session.pendingAssistantId, {
             streaming: false
           })
@@ -646,6 +659,12 @@ async function consumeStream(
             messageId: session.pendingAssistantId,
             streaming: false
           })
+          if (leftover) {
+            void speakAssistantText(leftover, {
+              taskId,
+              messageId: session.pendingAssistantId
+            })
+          }
           session.pendingAssistantId = undefined
           session.streamBuffer = ''
         } else if (failed && text) {
@@ -894,6 +913,7 @@ export async function sendMessage(params: {
     patch.title = trimmed.slice(0, 40)
   }
   await sessionStore.updateTask(taskId, patch)
+  interruptSpeaking()
   broadcast({ type: 'status', taskId, status: 'running', phase: 'thinking' })
 
   try {

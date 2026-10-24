@@ -5,12 +5,13 @@ import type {
   ModelEntry,
   ProviderConfig
 } from './types'
-import { getSettings, listModels, saveSettings, testModel } from './agentApi'
+import { getSettings, listModels, previewTts, saveSettings, stopTts, testModel } from './agentApi'
+import type { TtsConfig } from './types'
 
 const DEFAULT_CTX_IN = 1_000_000
 const DEFAULT_CTX_OUT = 131_072
 
-type SettingsSection = { kind: 'provider'; id: string } | { kind: 'uiDev' }
+type SettingsSection = { kind: 'provider'; id: string } | { kind: 'uiDev' } | { kind: 'tts' }
 
 function emptyModel(fallbackLabel?: string): ModelEntry {
   return {
@@ -50,7 +51,7 @@ export function SettingsModal({
 }: {
   open: boolean
   /** Which pane to show when the dialog opens. */
-  focus?: 'models' | 'uiDev'
+  focus?: 'models' | 'uiDev' | 'tts'
   onClose: () => void
   onSaved?: (s: AgentSettings) => void
 }): JSX.Element | null {
@@ -75,6 +76,8 @@ export function SettingsModal({
         setSettings(s)
         if (focus === 'uiDev') {
           setSection({ kind: 'uiDev' })
+        } else if (focus === 'tts') {
+          setSection({ kind: 'tts' })
         } else {
           const first = s.providers[0]
           setSection(first ? { kind: 'provider', id: first.id } : { kind: 'uiDev' })
@@ -255,6 +258,31 @@ export function SettingsModal({
     })
     setPulled((prev) =>
       prev ? prev.map((x) => (x.id === remote.id ? { ...x, disabled: true } : x)) : prev
+    )
+  }
+
+  const updateTts = (patch: Partial<TtsConfig>): void => {
+    const base: TtsConfig = {
+      enabled: false,
+      baseUrl: '',
+      apiKey: '',
+      model: 'tts-1',
+      voice: 'alloy',
+      speed: 1,
+      format: 'mp3',
+      maxChars: 2000
+    }
+    setSettings((s) =>
+      s
+        ? {
+            ...s,
+            tts: {
+              ...base,
+              ...(s.tts ?? {}),
+              ...patch
+            }
+          }
+        : s
     )
   }
 
@@ -542,6 +570,140 @@ export function SettingsModal({
     )
   }
 
+  const renderTts = (): JSX.Element => {
+    const tts = settings.tts ?? {
+      enabled: false,
+      baseUrl: '',
+      apiKey: '',
+      model: 'tts-1',
+      voice: 'alloy',
+      speed: 1,
+      format: 'mp3' as const,
+      maxChars: 2000
+    }
+    return (
+      <div className="settings-pane-slide">
+        <section className="preset-card">
+          <div className="settings-pane-title">
+            <span>Cloud TTS</span>
+            <span className="settings-badge">OpenAI compatible</span>
+          </div>
+          <label className="radio-inline" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input
+              type="checkbox"
+              checked={tts.enabled}
+              onChange={(e) => updateTts({ enabled: e.target.checked })}
+            />
+            Enable auto-speak when assistant replies
+          </label>
+
+          <div className="preset-row">
+            <label className="field">
+              <span>Base URL</span>
+              <input
+                type="text"
+                placeholder="https://api.openai.com"
+                value={tts.baseUrl}
+                onChange={(e) => updateTts({ baseUrl: e.target.value })}
+              />
+            </label>
+            <label className="field">
+              <span>API Key</span>
+              <input
+                type="password"
+                value={tts.apiKey}
+                onChange={(e) => updateTts({ apiKey: e.target.value })}
+              />
+            </label>
+          </div>
+
+          <div className="preset-row">
+            <label className="field">
+              <span>Model</span>
+              <input
+                type="text"
+                placeholder="tts-1"
+                value={tts.model}
+                onChange={(e) => updateTts({ model: e.target.value })}
+              />
+            </label>
+            <label className="field">
+              <span>Voice</span>
+              <input
+                type="text"
+                placeholder="alloy"
+                value={tts.voice}
+                onChange={(e) => updateTts({ voice: e.target.value })}
+              />
+            </label>
+          </div>
+
+          <div className="preset-row">
+            <label className="field">
+              <span>Speed</span>
+              <input
+                type="number"
+                min={0.25}
+                max={4}
+                step={0.05}
+                value={tts.speed}
+                onChange={(e) => updateTts({ speed: Number(e.target.value) || 1 })}
+              />
+            </label>
+            <label className="field">
+              <span>Format</span>
+              <select
+                value={tts.format}
+                onChange={(e) =>
+                  updateTts({ format: e.target.value as TtsConfig['format'] })
+                }
+              >
+                <option value="mp3">mp3</option>
+                <option value="wav">wav</option>
+                <option value="opus">opus</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Max chars</span>
+              <input
+                type="number"
+                min={100}
+                max={20000}
+                value={tts.maxChars}
+                onChange={(e) => updateTts({ maxChars: Number(e.target.value) || 2000 })}
+              />
+            </label>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                void previewTts(undefined, tts).then((r) => {
+                  if (!r.ok) setError(r.error)
+                  else setError(null)
+                })
+              }}
+            >
+              Preview
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                void stopTts()
+                setError(null)
+              }}
+            >
+              Stop
+            </button>
+          </div>
+        </section>
+      </div>
+    )
+  }
+
   const renderUiDev = (): JSX.Element => (
     <div className="preset-card">
       <div className="settings-pane-title">
@@ -638,16 +800,25 @@ export function SettingsModal({
             >
               <span className="settings-nav-label">开发调试</span>
             </button>
+            <button
+              type="button"
+              className={`settings-nav-item${section.kind === 'tts' ? ' active' : ''}`}
+              onClick={() => setSection({ kind: 'tts' })}
+            >
+              <span className="settings-nav-label">TTS</span>
+            </button>
           </nav>
           <div className="settings-pane">
             <div key={section.kind === 'provider' ? section.id : 'uiDev'}>
               {section.kind === 'uiDev'
                 ? renderUiDev()
-                : activeProvider
-                  ? renderProviderForm(activeProvider)
-                  : settings.providers[0]
-                    ? renderProviderForm(settings.providers[0])
-                    : renderUiDev()}
+                : section.kind === 'tts'
+                  ? renderTts()
+                  : activeProvider
+                    ? renderProviderForm(activeProvider)
+                    : settings.providers[0]
+                      ? renderProviderForm(settings.providers[0])
+                      : renderUiDev()}
             </div>
             {error && <div className="form-error">{error}</div>}
           </div>

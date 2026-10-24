@@ -35,10 +35,12 @@ const HOST_CHANNELS = [
   'agent:model:switch',
   'agent:access:switch',
   'agent:permission:respond',
-  'agent:session:cancel'
+  'agent:session:cancel',
+  'agent:tts:preview',
+  'agent:tts:stop'
 ]
 
-const EVENT_CHANNELS = new Set(['agent:event'])
+const EVENT_CHANNELS = new Set(['agent:event', 'agent:tts:audio', 'agent:tts:status'])
 
 /**
  * Plugin domain channels: `plugin:<id>:<suffix>`.

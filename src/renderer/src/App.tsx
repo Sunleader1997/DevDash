@@ -6,6 +6,7 @@ import { AgentWorkspace } from './agent/AgentWorkspace'
 import { SettingsModal } from './agent/SettingsModal'
 import type { AgentPhase, AgentSettings } from './agent/types'
 import { createTask, deleteTask, getSettings, listTasks, onAgentEvent } from './agent/agentApi'
+import { ensureTtsPlayer, disposeTtsPlayer } from './agent/ttsPlayer'
 import { resolveStatus, setLiveStatus, subscribeLiveStatus, liveStatusVersion } from './agent/liveStatus'
 import './agent/agent.css'
 
@@ -32,7 +33,7 @@ export default function App(): JSX.Element {
   /** Bumped on retry / hot-reload so the lazy-import effect re-runs. */
   const [loadNonce, setLoadNonce] = useState(0)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [settingsFocus, setSettingsFocus] = useState<'models' | 'uiDev'>('models')
+  const [settingsFocus, setSettingsFocus] = useState<'models' | 'uiDev' | 'tts'>('models')
   const [agentSettings, setAgentSettings] = useState<AgentSettings | null>(null)
   /** Bumped on hot-reload so in-flight imports from a previous gen are discarded. */
   const reloadGen = useRef(0)
@@ -110,6 +111,8 @@ export default function App(): JSX.Element {
     getSettings()
       .then(setAgentSettings)
       .catch(() => setAgentSettings(null))
+    ensureTtsPlayer()
+    return () => disposeTtsPlayer()
   }, [refreshTasks])
 
   // Default view: plugin declaring `home` (landing), else first agent task, else first plugin

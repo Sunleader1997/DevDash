@@ -8,7 +8,8 @@ import type {
   ConnectivityResult,
   ProviderConnection,
   PermissionRequestPayload,
-  SkillInfo
+  SkillInfo,
+  TtsSpeakResult
 } from './types'
 
 export async function getSettings(): Promise<AgentSettings> {
@@ -114,6 +115,25 @@ export function onAgentEvent(cb: (e: AgentEvent) => void): () => void {
   return window.devdash.on('agent:event', (payload) => {
     cb(payload as AgentEvent)
   })
+}
+
+export async function previewTts(text?: string, tts?: Partial<import('./types').TtsConfig>): Promise<TtsSpeakResult> {
+  return (await window.devdash.invoke('agent:tts:preview', {
+    ...(text ? { text } : {}),
+    ...(tts ? { tts } : {})
+  })) as TtsSpeakResult
+}
+
+export async function stopTts(): Promise<void> {
+  await window.devdash.invoke('agent:tts:stop')
+}
+
+export function onTtsAudio(cb: (payload: unknown) => void): () => void {
+  return window.devdash.on('agent:tts:audio', cb)
+}
+
+export function onTtsStatus(cb: (payload: unknown) => void): () => void {
+  return window.devdash.on('agent:tts:status', cb)
 }
 
 export type { AgentSendRequest, PermissionRequestPayload }

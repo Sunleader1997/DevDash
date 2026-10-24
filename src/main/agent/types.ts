@@ -70,12 +70,39 @@ export type UiDevSettings = {
   cdpPort?: number
 }
 
+export type TtsFormat = 'mp3' | 'wav' | 'opus'
+
+/** Cloud TTS (OpenAI-compatible `/v1/audio/speech`), user-configured. */
+export type TtsConfig = {
+  enabled: boolean
+  /** e.g. https://api.openai.com */
+  baseUrl: string
+  apiKey: string
+  model: string
+  voice: string
+  /** 0.25–4.0 */
+  speed: number
+  format: TtsFormat
+  /** Speak at most this many chars (truncate + suffix). */
+  maxChars: number
+}
+
 export type AgentSettings = {
   providers: ProviderConfig[]
   /** Default ModelEntry.id */
   activeModelId: string
   uiDev?: UiDevSettings
+  tts: TtsConfig
 }
+
+export type TtsSpeakResult =
+  | { ok: true; bytes: number; format: TtsFormat }
+  | { ok: false; error: string }
+
+export type TtsStatusEvent =
+  | { state: 'idle' }
+  | { state: 'speaking'; taskId?: string; messageId?: string }
+  | { state: 'error'; error: string }
 
 /** 审批模式 vs 完全访问 */
 export type AccessMode = 'approve' | 'full'

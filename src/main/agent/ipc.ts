@@ -4,13 +4,15 @@ import {
   saveSettings,
   newId,
   fetchModelList,
-  testConnectivity
+  testConnectivity,
+  normalizeTts
 } from './modelConfig'
 import * as sessionStore from './sessionStore'
 import * as runtime from './agentRuntime'
 import { respondPermission } from './permissionBridge'
 import { listSkills } from './skills'
 import { repoRoot } from './repoRoot'
+import { previewTts, stopSpeaking } from './ttsService'
 import type {
   AgentSendRequest,
   AgentSettings,
@@ -53,7 +55,8 @@ export function registerAgentIpc(): void {
     const next: AgentSettings = {
       providers,
       activeModelId,
-      uiDev: settings.uiDev
+      uiDev: settings.uiDev,
+      tts: normalizeTts(settings.tts)
     }
     await saveSettings(next)
     return next
@@ -175,6 +178,18 @@ export function registerAgentIpc(): void {
 
   ipcMain.handle('agent:session:cancel', async (_e, taskId: string) => {
     await runtime.cancelTask(taskId)
+    return true
+  })
+
+  ipcMain.handle(
+    'agent:tts:preview',
+    async (_e, payload?: { text?: string; tts?: Partial<import('./types').TtsConfig> }) => {
+      return previewTts(payload?.text, payload?.tts)
+    }
+  )
+
+  ipcMain.handle('agent:tts:stop', async () => {
+    stopSpeaking()
     return true
   })
 }

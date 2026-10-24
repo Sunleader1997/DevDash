@@ -8,7 +8,9 @@ import type {
   ModelEntry,
   ProviderConfig,
   ProviderConnection,
-  ResolvedModel
+  ResolvedModel,
+  TtsConfig,
+  TtsFormat
 } from './types'
 
 const FILE = 'agent-settings.json'
@@ -41,10 +43,22 @@ function defaultProvider(): ProviderConfig {
   }
 }
 
+export const DEFAULT_TTS: TtsConfig = {
+  enabled: false,
+  baseUrl: '',
+  apiKey: '',
+  model: 'tts-1',
+  voice: 'alloy',
+  speed: 1,
+  format: 'mp3',
+  maxChars: 2000
+}
+
 export const DEFAULT_SETTINGS: AgentSettings = {
   providers: [defaultProvider()],
   activeModelId: 'anthropic-default',
-  uiDev: { enableCdp: false, cdpPort: 9222 }
+  uiDev: { enableCdp: false, cdpPort: 9222 },
+  tts: { ...DEFAULT_TTS }
 }
 
 function settingsPath(): string {
@@ -131,7 +145,8 @@ function migrateLegacyPresets(raw: Record<string, unknown>): AgentSettings | nul
   return {
     providers,
     activeModelId,
-    uiDev: normalizeUiDev(raw.uiDev as AgentSettings['uiDev'])
+    uiDev: normalizeUiDev(raw.uiDev as AgentSettings['uiDev']),
+    tts: normalizeTts(raw.tts as Partial<TtsConfig>)
   }
 }
 
@@ -140,7 +155,7 @@ export async function loadSettings(): Promise<AgentSettings> {
     const raw = await fs.readFile(settingsPath(), 'utf8')
     const parsed = JSON.parse(raw) as Record<string, unknown>
     if (!parsed || typeof parsed !== 'object') {
-      return { ...DEFAULT_SETTINGS, providers: [defaultProvider()] }
+      return { ...DEFAULT_SETTINGS, providers: [defaultProvider()], tts: normalizeTts(undefined) }
     }
 
     // New hierarchical format
@@ -150,7 +165,7 @@ export async function loadSettings(): Promise<AgentSettings> {
         .map((p) => normalizeProvider(p))
         .filter((p) => p.models.length > 0)
       if (providers.length === 0) {
-        return { ...DEFAULT_SETTINGS, providers: [defaultProvider()] }
+        return { ...DEFAULT_SETTINGS, providers: [defaultProvider()], tts: normalizeTts(undefined) }
       }
       const allModels = providers.flatMap((p) => p.models)
       const rawActive = typeof parsed.activeModelId === 'string' ? parsed.activeModelId : ''
@@ -159,7 +174,8 @@ export async function loadSettings(): Promise<AgentSettings> {
       return {
         providers,
         activeModelId,
-        uiDev: normalizeUiDev(parsed.uiDev as AgentSettings['uiDev'])
+        uiDev: normalizeUiDev(parsed.uiDev as AgentSettings['uiDev']),
+        tts: normalizeTts(parsed.tts as Partial<TtsConfig>)
       }
     }
 
@@ -171,9 +187,9 @@ export async function loadSettings(): Promise<AgentSettings> {
       return migrated
     }
 
-    return { ...DEFAULT_SETTINGS, providers: [defaultProvider()] }
+    return { ...DEFAULT_SETTINGS, providers: [defaultProvider()], tts: normalizeTts(undefined) }
   } catch {
-    return { ...DEFAULT_SETTINGS, providers: [defaultProvider()] }
+    return { ...DEFAULT_SETTINGS, providers: [defaultProvider()], tts: normalizeTts(undefined) }
   }
 }
 
@@ -182,6 +198,25 @@ function normalizeUiDev(raw: Partial<AgentSettings['uiDev']>): AgentSettings['ui
   const portNum = Number(raw?.cdpPort)
   const cdpPort = Number.isInteger(portNum) && portNum >= 1024 && portNum <= 65535 ? portNum : 9222
   return { enableCdp, cdpPort }
+}
+
+export function normalizeTts(raw?: Partial<TtsConfig>): TtsConfig {
+  const speedNum = Number(raw?.speed)
+  const maxNum = Number(raw?.maxChars)
+  const format = (raw?.format ?? DEFAULT_TTS.format) as TtsFormat
+  return {
+    enabled: raw?.enabled === true,
+    baseUrl: typeof raw?.baseUrl === 'string' ? raw.baseUrl.trim() : '',
+    apiKey: typeof raw?.apiKey === 'string' ? raw.apiKey : '',
+    model: typeof raw?.model === 'string' && raw.model.trim() ? raw.model.trim() : DEFAULT_TTS.model,
+    voice: typeof raw?.voice === 'string' && raw.voice.trim() ? raw.voice.trim() : DEFAULT_TTS.voice,
+    speed:
+      Number.isFinite(speedNum) && speedNum >= 0.25 && speedNum <= 4
+        ? speedNum
+        : DEFAULT_TTS.speed,
+    format: format === 'mp3' || format === 'wav' || format === 'opus' ? format : 'mp3',
+    maxChars: Number.isInteger(maxNum) && maxNum > 0 ? Math.min(maxNum, 20_000) : DEFAULT_TTS.maxChars
+  }
 }
 
 export async function saveSettings(settings: AgentSettings): Promise<void> {
@@ -198,7 +233,8 @@ export async function saveSettings(settings: AgentSettings): Promise<void> {
         : { ...p, models: p.models.map((m) => normalizeModelEntry(m)) }
     ),
     activeModelId: settings.activeModelId,
-    uiDev: normalizeUiDev(settings.uiDev)
+    uiDev: normalizeUiDev(settings.uiDev),
+    tts: normalizeTts(settings.tts)
   }
   await fs.writeFile(file, JSON.stringify(normalized, null, 2), 'utf8')
 }
