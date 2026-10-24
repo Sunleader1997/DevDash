@@ -17,13 +17,13 @@
     "build:plugins": "node scripts/build-plugins.mjs",
     "stage:plugins": "node scripts/stage-plugins.mjs",
     "ensure:electron": "node scripts/ensure-electron.mjs",
-    "pack:win": "export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ && export ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ && npm run build && node scripts/stage-claude-bin.mjs win32 x64 && npm run stage:plugins && electron-builder --win",
-    "pack:win:dir": "export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ && export ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ && npm run build && node scripts/stage-claude-bin.mjs win32 x64 && npm run stage:plugins && electron-builder --win dir",
+    "pack:win": "node scripts/pack.mjs win32 x64",
+    "pack:win:dir": "node scripts/pack.mjs win32 x64 --dir",
     "postinstall": "npm run build:plugins && npm run ensure:electron",
-    "pack:mac": "export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ && export ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ && npm run build && node scripts/stage-claude-bin.mjs darwin arm64 && npm run stage:plugins && electron-builder --mac",
-    "pack:mac:dir": "export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ && export ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ && npm run build && node scripts/stage-claude-bin.mjs darwin arm64 && npm run stage:plugins && electron-builder --mac dir",
-    "pack:linux": "export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ && export ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ && npm run build && node scripts/stage-claude-bin.mjs linux x64 && npm run stage:plugins && electron-builder --linux",
-    "pack:linux:dir": "export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ && export ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ && npm run build && node scripts/stage-claude-bin.mjs linux x64 && npm run stage:plugins && electron-builder --linux dir"
+    "pack:mac": "node scripts/pack.mjs darwin arm64",
+    "pack:mac:dir": "node scripts/pack.mjs darwin arm64 --dir",
+    "pack:linux": "node scripts/pack.mjs linux x64",
+    "pack:linux:dir": "node scripts/pack.mjs linux x64 --dir"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.306",
