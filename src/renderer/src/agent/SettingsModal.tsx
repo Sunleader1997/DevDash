@@ -8,7 +8,7 @@ import type {
 import { getSettings, listModels, saveSettings, testModel } from './agentApi'
 
 const DEFAULT_CTX_IN = 1_000_000
-const DEFAULT_CTX_OUT = 64_000
+const DEFAULT_CTX_OUT = 131_072
 
 type SettingsSection = { kind: 'provider'; id: string } | { kind: 'uiDev' }
 

@@ -10,7 +10,7 @@ commits: 9c9ea08..9c9ea08
 
 ## Report
 
-**What was built** — 在 DevDash 宿主内集成 `@anthropic-ai/claude-agent-sdk`（非插件）。左上角「新建任务」打开对话工作区，左下角「设置」配置模型：名称 / 接口地址 / 接口协议（Anthropic Messages）/ API Key，支持测试连通、拉取模型列表选型，输入/输出上下文长度可配（默认 1M / 64k）。对话输入框下方 footer 控制条仿 MiMo Desktop：审批模式 ↔ 完全访问切换、模型切换、`/` 引用 skill、`#` 引用插件。Agent 在仓库内自治开发 `plugins/*`，危险操作经 UI 确认（完全访问则跳过）。会话/消息/设置持久化在 userData。
+**What was built** — 在 DevDash 宿主内集成 `@anthropic-ai/claude-agent-sdk`（非插件）。左上角「新建任务」打开对话工作区，左下角「设置」配置模型：名称 / 接口地址 / 接口协议（Anthropic Messages）/ API Key，支持测试连通、拉取模型列表选型，输入/输出上下文长度可配（默认 1M / 128k）。对话输入框下方 footer 控制条仿 MiMo Desktop：审批模式 ↔ 完全访问切换、模型切换、`/` 引用 skill、`#` 引用插件。Agent 在仓库内自治开发 `plugins/*`，危险操作经 UI 确认（完全访问则跳过）。会话/消息/设置持久化在 userData。
 
 **Verification** — `npm run typecheck` PASS；`npm run build:plugins` PASS（git-manager）；`npx electron-vite build` PASS；`node scripts/smoke.mjs` PASS。敏感路径匹配器对绝对/相对路径用例 6/6 OK。真实模型对话需在设置中配置 API Key / 订阅登录后验证。
 

@@ -14,7 +14,7 @@ import type {
 const FILE = 'agent-settings.json'
 
 export const DEFAULT_CONTEXT_INPUT = 1_000_000
-export const DEFAULT_CONTEXT_OUTPUT = 64_000
+export const DEFAULT_CONTEXT_OUTPUT = 131_072
 
 export function newId(): string {
   return randomUUID()

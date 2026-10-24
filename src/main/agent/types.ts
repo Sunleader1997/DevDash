@@ -19,7 +19,7 @@ export type ModelEntry = {
   label: string
   /** Input context length in tokens; default 1_000_000 (1M) */
   contextInputTokens: number
-  /** Max output tokens; default 64000 */
+  /** Max output tokens; default 131072 */
   contextOutputTokens: number
 }
 
