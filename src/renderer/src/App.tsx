@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useRef, useState, ComponentType, Suspense } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, ComponentType, Suspense } from 'react'
 import type { DevDashPluginMeta } from './hostApi'
 import { PluginSidebar, type TaskListItem } from './shell/PluginSidebar'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import { AgentWorkspace } from './agent/AgentWorkspace'
 import { SettingsModal } from './agent/SettingsModal'
-import type { AgentSettings } from './agent/types'
-import { createTask, deleteTask, getSettings, listTasks } from './agent/agentApi'
+import type { AgentPhase, AgentSettings } from './agent/types'
+import { createTask, deleteTask, getSettings, listTasks, onAgentEvent } from './agent/agentApi'
+import { resolveStatus, setLiveStatus, subscribeLiveStatus, liveStatusVersion } from './agent/liveStatus'
 import './agent/agent.css'
 
 type DiscoveredPlugin = Omit<DevDashPluginMeta, 'rootDir' | 'uiEntry'> & { uiUrl: string }
@@ -35,14 +36,59 @@ export default function App(): JSX.Element {
   const [agentSettings, setAgentSettings] = useState<AgentSettings | null>(null)
   /** Bumped on hot-reload so in-flight imports from a previous gen are discarded. */
   const reloadGen = useRef(0)
+  /** Monotonic refresh token — ignores stale listTasks responses. */
+  const listSeq = useRef(0)
 
   const refreshTasks = useCallback(() => {
+    const seq = ++listSeq.current
     listTasks()
       .then((list) => {
-        setTasks(list.map((t) => ({ id: t.id, title: t.title, status: t.status })))
+        // Drop out-of-order responses so a slow listSessions call cannot
+        // overwrite a newer status with a stale `running` snapshot.
+        if (seq !== listSeq.current) return
+        setTasks(
+          list.map((t) => ({
+            id: t.id,
+            title: t.title,
+            status: resolveStatus(t.id, t.status)
+          }))
+        )
       })
       .catch(() => setTasks([]))
   }, [])
+
+  // Re-render when live status changes so the sidebar spinner tracks the
+  // composer chip without waiting for another listTasks round-trip.
+  useSyncExternalStore(subscribeLiveStatus, () => liveStatusVersion(), () => 0)
+
+  // Live status events are the same source as the composer status chip.
+  // Subscribe at app level so the sidebar spinner stays in sync even when
+  // AgentWorkspace is unmounted (e.g. viewing a plugin).
+  useEffect(() => {
+    return onAgentEvent((e) => {
+      if (e.type !== 'status') return
+      const nextPhase: AgentPhase = e.phase
+        ? e.phase
+        : e.status === 'running'
+          ? 'thinking'
+          : e.status === 'error'
+            ? 'error'
+            : 'idle'
+      setLiveStatus(e.taskId, { status: e.status, phase: nextPhase })
+      setTasks((prev) => {
+        const idx = prev.findIndex((t) => t.id === e.taskId)
+        if (idx < 0) {
+          // New or unknown task — pick it up from the store.
+          refreshTasks()
+          return prev
+        }
+        if (prev[idx].status === e.status) return prev
+        const next = [...prev]
+        next[idx] = { ...next[idx], status: e.status }
+        return next
+      })
+    })
+  }, [refreshTasks])
 
   useEffect(() => {
     let cancelled = false
@@ -211,6 +257,11 @@ export default function App(): JSX.Element {
 
   const activePlugin = view?.kind === 'plugin' ? loaded[view.pluginId] : null
   const pluginError = view?.kind === 'plugin' ? (pluginErrors[view.pluginId] ?? null) : null
+  // Overlay live event status so the spinner matches the composer chip immediately.
+  const displayTasks: TaskListItem[] = tasks.map((t) => ({
+    ...t,
+    status: resolveStatus(t.id, t.status)
+  }))
   const titlePage =
     view?.kind === 'agent'
       ? 'Agent 任务'
@@ -253,7 +304,7 @@ export default function App(): JSX.Element {
         <PluginSidebar
           plugins={plugins}
           activeId={view?.kind === 'plugin' ? view.pluginId : null}
-          tasks={tasks}
+          tasks={displayTasks}
           activeTaskId={view?.kind === 'agent' ? view.taskId : null}
           onSelectPlugin={selectPlugin}
           onSelectTask={selectTask}

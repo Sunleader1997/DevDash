@@ -734,6 +734,114 @@ function MembersError({ message }: { message: string | null }): JSX.Element | nu
   )
 }
 
+/**
+ * Shared modal shell.
+ * Backdrop is non-dismissing: only the header close button, footer actions, or Escape close it.
+ */
+function ModalShell({
+  title,
+  onClose,
+  busy,
+  wide,
+  footer,
+  children
+}: {
+  title: string
+  onClose: () => void
+  busy?: boolean
+  wide?: boolean
+  footer?: React.ReactNode
+  children: React.ReactNode
+}): JSX.Element {
+  const panelRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    panelRef.current?.focus()
+  }, [])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !busy) {
+        e.preventDefault()
+        e.stopPropagation()
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [busy, onClose])
+
+  return (
+    <div className="gm-modal-backdrop" role="presentation">
+      <div
+        ref={panelRef}
+        className={cx('gm-modal', wide && 'wide')}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
+      >
+        <div className="gm-modal-header">
+          <div className="gm-modal-title">{title}</div>
+          <button
+            className="gm-btn ghost icon"
+            title="关闭"
+            aria-label="关闭"
+            disabled={busy}
+            onClick={onClose}
+          >
+            <IconClose />
+          </button>
+        </div>
+        <div className="gm-modal-body">{children}</div>
+        {footer ? <div className="gm-modal-footer">{footer}</div> : null}
+      </div>
+    </div>
+  )
+}
+
+function ConfirmModal({
+  title,
+  message,
+  confirmLabel,
+  danger,
+  busy,
+  onConfirm,
+  onCancel
+}: {
+  title: string
+  message: React.ReactNode
+  confirmLabel?: string
+  danger?: boolean
+  busy?: boolean
+  onConfirm: () => void
+  onCancel: () => void
+}): JSX.Element {
+  return (
+    <ModalShell
+      title={title}
+      onClose={onCancel}
+      busy={busy}
+      footer={
+        <>
+          <button className="gm-btn" disabled={busy} onClick={onCancel}>
+            取消
+          </button>
+          <button
+            className={cx('gm-btn', danger ? 'danger' : 'primary')}
+            disabled={busy}
+            onClick={onConfirm}
+          >
+            {confirmLabel || '确认'}
+          </button>
+        </>
+      }
+    >
+      <div className="gm-modal-message">{message}</div>
+    </ModalShell>
+  )
+}
+
 /** Global (plugin-wide) open policy + GitLab default config. */
 const GLOBAL_SETTINGS_SECTIONS = [
   { id: 'open-policy', title: '打开策略', subtitle: '文件白名单与大小上限' },
@@ -1187,6 +1295,7 @@ function RepoWorkspace({
   const [commitFiles, setCommitFiles] = useState<DiffFileInfo[]>([])
   const [commitTreeExpanded, setCommitTreeExpanded] = useState<Record<string, boolean>>({})
   const [mrOpen, setMrOpen] = useState(false)
+  const [revertTarget, setRevertTarget] = useState<string | null>(null)
   const [sizes, setSizes] = useState<UiSizes>(DEFAULT_SIZES)
   const [hydrated, setHydrated] = useState(false)
   const [ready, setReady] = useState(false)
@@ -1610,18 +1719,28 @@ function RepoWorkspace({
             <span style={{ opacity: 0.5, fontSize: 10 }}>▾</span>
           </button>
           {branchOpen && (
-            <div className="gm-dropdown">
-              {branches.map((b) => (
-                <button
-                  key={b.name}
-                  className={cx(b.name === repo.branch && 'active')}
-                  onClick={() => void switchBranch(b.name)}
-                >
-                  {b.current ? '✓ ' : ''}
-                  {b.name}
-                </button>
-              ))}
-            </div>
+            <>
+              <div
+                className="gm-menu-backdrop"
+                onClick={() => setBranchOpen(false)}
+                onContextMenu={(e) => {
+                  e.preventDefault?.()
+                  setBranchOpen(false)
+                }}
+              />
+              <div className="gm-dropdown">
+                {branches.map((b) => (
+                  <button
+                    key={b.name}
+                    className={cx(b.name === repo.branch && 'active')}
+                    onClick={() => void switchBranch(b.name)}
+                  >
+                    {b.current ? '✓ ' : ''}
+                    {b.name}
+                  </button>
+                ))}
+              </div>
+            </>
           )}
         </div>
         <div className="gm-seg">
@@ -1836,24 +1955,7 @@ function RepoWorkspace({
                         }
                       })()
                     }}
-                    onRevert={(p) => {
-                      if (!window.confirm(`回滚将丢弃「${p}」的未提交更改（含已 add 未 commit、未跟踪文件），不可恢复。继续？`)) {
-                        return
-                      }
-                      void (async () => {
-                        try {
-                          await api.tasks(`revert-${p}`, `回滚 ${p}`, () => api.revertPaths(repo.path, [p]))
-                          onToast(`已回滚 ${p}`)
-                          if (selectedFile === p || selectedFile?.startsWith(`${p}/`)) {
-                            setSelectedFile(null)
-                          }
-                        } catch (e) {
-                          onToast((e as Error).message, true)
-                        } finally {
-                          await refreshStatus()
-                        }
-                      })()
-                    }}
+                    onRevert={(p) => setRevertTarget(p)}
                   />
                 </div>
               )}
@@ -1973,6 +2075,37 @@ function RepoWorkspace({
           }}
         />
       )}
+      {revertTarget && (
+        <ConfirmModal
+          title="回滚更改"
+          message={
+            <>
+              回滚将丢弃 <strong>「{revertTarget}」</strong> 的未提交更改（含已 add 未 commit、未跟踪文件），
+              不可恢复。继续？
+            </>
+          }
+          confirmLabel="回滚"
+          danger
+          onCancel={() => setRevertTarget(null)}
+          onConfirm={() => {
+            const p = revertTarget
+            setRevertTarget(null)
+            void (async () => {
+              try {
+                await api.tasks(`revert-${p}`, `回滚 ${p}`, () => api.revertPaths(repo.path, [p]))
+                onToast(`已回滚 ${p}`)
+                if (selectedFile === p || selectedFile?.startsWith(`${p}/`)) {
+                  setSelectedFile(null)
+                }
+              } catch (e) {
+                onToast((e as Error).message, true)
+              } finally {
+                await refreshStatus()
+              }
+            })()
+          }}
+        />
+      )}
     </>
   )
 }
@@ -2030,41 +2163,13 @@ function PushPanel({
   }
 
   return (
-    <div className="gm-modal-backdrop" onClick={onClose}>
-      <div className="gm-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="gm-modal-header">Push · {repo.name}</div>
-        <div className="gm-modal-body">
-          <div className="gm-field">
-            <label>待推送 commit</label>
-            <div className="gm-push-list">
-              {loading && <div className="muted">加载中…</div>}
-              {!loading && commits.length === 0 && (
-                <div className="muted">没有待推送的提交（或无远程跟踪）</div>
-              )}
-              {commits.map((c) => (
-                <div key={c.hash} className="gm-push-item">
-                  <code>{c.shortHash}</code>
-                  <span>{c.subject}</span>
-                  <span className="muted">{c.authorName}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="gm-field">
-            <label>Remote</label>
-            <input value={remote} onChange={(e) => setRemote(e.target.value)} placeholder="origin" />
-          </div>
-          <div className="gm-field">
-            <label>目标分支</label>
-            <input
-              value={branch}
-              onChange={(e) => setBranch(e.target.value)}
-              placeholder="默认当前分支"
-            />
-          </div>
-        </div>
-        <div className="gm-modal-footer">
-          <button className="gm-btn" onClick={onClose}>
+    <ModalShell
+      title={`Push · ${repo.name}`}
+      onClose={onClose}
+      busy={pushing}
+      footer={
+        <>
+          <button className="gm-btn" disabled={pushing} onClick={onClose}>
             取消
           </button>
           <button className="gm-btn primary" disabled={pushing} onClick={() => void doPush()}>
@@ -2074,9 +2179,44 @@ function PushPanel({
             </svg>
             <span>{pushing ? '推送中…' : 'Push'}</span>
           </button>
+        </>
+      }
+    >
+      <div className="gm-field">
+        <label>待推送 commit</label>
+        <div className="gm-push-list">
+          {loading && <div className="muted">加载中…</div>}
+          {!loading && commits.length === 0 && (
+            <div className="muted">没有待推送的提交（或无远程跟踪）</div>
+          )}
+          {commits.map((c) => (
+            <div key={c.hash} className="gm-push-item">
+              <code>{c.shortHash}</code>
+              <span>{c.subject}</span>
+              <span className="muted">{c.authorName}</span>
+            </div>
+          ))}
         </div>
       </div>
-    </div>
+      <div className="gm-field">
+        <label>Remote</label>
+        <input value={remote} onChange={(e) => setRemote(e.target.value)} placeholder="origin" />
+      </div>
+      <div className="gm-field">
+        <label>目标分支</label>
+        <input
+          value={branch}
+          onChange={(e) => setBranch(e.target.value)}
+          placeholder="默认当前分支"
+          onKeyDown={(e) => {
+            if ((e as { key?: string }).key === 'Enter' && !pushing) {
+              e.preventDefault?.()
+              void doPush()
+            }
+          }}
+        />
+      </div>
+    </ModalShell>
   )
 }
 
@@ -2967,23 +3107,61 @@ function MrPanel({
   }
 
   return (
-    <div className="gm-modal-backdrop" onClick={onClose}>
-      <div className="gm-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="gm-modal-header">一键 MR · {repo.name}</div>
-        <div className="gm-modal-body">
-          {submitError && <div className="gm-settings-error">{submitError}</div>}
-          {pushNote && <div className="gm-settings-hint">{pushNote}</div>}
-          {createdMr ? (
-            <div className="gm-mr-success">
-              <div className="gm-mr-success-title">MR 已创建 #{createdMr.iid}</div>
-              <div className="gm-mr-success-sub">{createdMr.title}</div>
-              <div className="gm-mr-success-url">{createdMr.web_url}</div>
-            </div>
-          ) : (
-            <>
+    <ModalShell
+      title={`一键 MR · ${repo.name}`}
+      onClose={onClose}
+      busy={submitting}
+      wide
+      footer={
+        createdMr ? (
+          <>
+            <button className="gm-btn" onClick={onClose}>
+              关闭
+            </button>
+            <button
+              className="gm-btn primary"
+              onClick={() => {
+                void api.openExternal(createdMr.web_url).catch((e: Error) => onToast(e.message, true))
+              }}
+            >
+              打开 MR
+            </button>
+          </>
+        ) : (
+          <>
+            <button className="gm-btn" disabled={submitting} onClick={onClose}>
+              取消
+            </button>
+            <button className="gm-btn primary" disabled={submitting} onClick={() => void submit()}>
+              {submitting ? '提交中…' : '创建 MR'}
+            </button>
+          </>
+        )
+      }
+    >
+      {submitError && <div className="gm-settings-error">{submitError}</div>}
+      {pushNote && <div className="gm-settings-hint">{pushNote}</div>}
+      {createdMr ? (
+        <div className="gm-mr-success">
+          <div className="gm-mr-success-title">MR 已创建 #{createdMr.iid}</div>
+          <div className="gm-mr-success-sub">{createdMr.title}</div>
+          <div className="gm-mr-success-url">{createdMr.web_url}</div>
+        </div>
+      ) : (
+        <>
           <div className="gm-field">
             <label>标题</label>
-            <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="MR 标题" />
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="MR 标题"
+              onKeyDown={(e) => {
+                if ((e as { key?: string }).key === 'Enter' && !submitting) {
+                  e.preventDefault?.()
+                  void submit()
+                }
+              }}
+            />
           </div>
           <div className="gm-field">
             <label>新分支（根据仓库目录生成）</label>
@@ -3051,37 +3229,9 @@ function MrPanel({
               ))}
             </div>
           </div>
-            </>
-          )}
-        </div>
-        <div className="gm-modal-footer">
-          {createdMr ? (
-            <>
-              <button className="gm-btn" onClick={onClose}>
-                关闭
-              </button>
-              <button
-                className="gm-btn primary"
-                onClick={() => {
-                  void api.openExternal(createdMr.web_url).catch((e: Error) => onToast(e.message, true))
-                }}
-              >
-                打开 MR
-              </button>
-            </>
-          ) : (
-            <>
-              <button className="gm-btn" onClick={onClose}>
-                取消
-              </button>
-              <button className="gm-btn primary" disabled={submitting} onClick={() => void submit()}>
-                {submitting ? '提交中…' : '创建 MR'}
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
+        </>
+      )}
+    </ModalShell>
   )
 }
 

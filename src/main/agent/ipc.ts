@@ -94,10 +94,13 @@ export function registerAgentIpc(): void {
   })
 
   ipcMain.handle('agent:tasks:list', async () => {
-    const local = await sessionStore.listTasks()
+    let local = await sessionStore.listTasks()
     try {
       const { listSessions } = await import('@anthropic-ai/claude-agent-sdk')
       const sessions = await listSessions({ dir: repoRoot(), limit: 50 })
+      // listSessions is slow — re-read so status changes during the wait
+      // (e.g. task finished) are not returned as a stale `running` snapshot.
+      local = await sessionStore.listTasks()
       const known = new Set(local.map((t) => t.sessionId).filter(Boolean))
       const localIds = new Set(local.map((t) => t.id))
       const extra = []

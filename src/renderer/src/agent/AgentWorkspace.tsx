@@ -5,6 +5,7 @@ import type {
   AgentPhase,
   AgentSettings,
   AgentTask,
+  AgentTaskStatus,
   ChatMessage,
   PermissionRequestPayload,
   SkillInfo
@@ -23,6 +24,7 @@ import {
 } from './agentApi'
 import { Markdown } from './Markdown'
 import { ContextRing } from './ContextRing'
+import { setLiveStatus } from './liveStatus'
 
 type PluginLite = { id: string; title: string; packageName: string }
 type PickKind = 'plugin' | 'skill' | null
@@ -202,6 +204,17 @@ export function AgentWorkspace({
     refreshCaps()
   }, [refreshCaps, taskId])
 
+  /** Keep the composer chip and sidebar spinner on one source of truth. */
+  const applyPhase = useCallback(
+    (next: AgentPhase, status?: AgentTaskStatus) => {
+      setPhase(next)
+      const st: AgentTaskStatus =
+        status ?? (next === 'error' ? 'error' : next === 'idle' ? 'idle' : 'running')
+      setLiveStatus(taskId, { status: st, phase: next })
+    },
+    [taskId]
+  )
+
   useEffect(() => {
     let cancelled = false
     setMessages([])
@@ -210,6 +223,7 @@ export function AgentWorkspace({
     setDraft('')
     setStatusNote(null)
     setPhase('idle')
+    setLiveStatus(taskId, { status: 'idle', phase: 'idle' })
     Promise.all([listTasks(), loadHistory(taskId)])
       .then(([tasks, history]) => {
         if (cancelled) return
@@ -221,7 +235,10 @@ export function AgentWorkspace({
         }
         setAccessMode(t?.accessMode ?? 'approve')
         setMessages(history)
-        setPhase(t?.status === 'running' ? 'thinking' : t?.status === 'error' ? 'error' : 'idle')
+        const initPhase: AgentPhase =
+          t?.status === 'running' ? 'thinking' : t?.status === 'error' ? 'error' : 'idle'
+        setPhase(initPhase)
+        if (t) setLiveStatus(t.id, { status: t.status, phase: initPhase })
       })
       .catch(() => undefined)
     return () => {
@@ -264,36 +281,47 @@ export function AgentWorkspace({
             : t
         )
         if (e.accessMode) setAccessMode(e.accessMode)
-        if (e.phase) setPhase(e.phase)
-        else if (e.status === 'running') setPhase('thinking')
-        else if (e.status === 'error') {
-          setPhase('error')
-          setStatusNote({ kind: 'error', text: e.error || '出错了' })
-        } else setPhase('idle')
+        // Keep sidebar spinner on the same source as the composer status chip.
+        const nextPhase: AgentPhase = e.phase
+          ? e.phase
+          : e.status === 'running'
+            ? 'thinking'
+            : e.status === 'error'
+              ? 'error'
+              : 'idle'
+        applyPhase(nextPhase, e.status)
+        if (e.status === 'error') setStatusNote({ kind: 'error', text: e.error || '出错了' })
         if (e.status !== 'running') setSending(false)
         if (e.status === 'running') setStatusNote(null)
         // SDK init may have published new skills/commands
         if (e.status === 'running' || e.phase === 'thinking') refreshCaps()
         onTasksChanged()
       } else if (e.type === 'status') {
-        // Other tasks' status changes (e.g. a background task finished) must
-        // still refresh the sidebar spinner — not only the active task.
+        // Background tasks: same live status source so their spinner stops too.
+        const nextPhase: AgentPhase = e.phase
+          ? e.phase
+          : e.status === 'running'
+            ? 'thinking'
+            : e.status === 'error'
+              ? 'error'
+              : 'idle'
+        setLiveStatus(e.taskId, { status: e.status, phase: nextPhase })
         onTasksChanged()
       } else if (e.type === 'permission' && e.payload.taskId === taskId) {
         setPermission(e.payload)
-        setPhase('waiting')
+        applyPhase('waiting', 'running')
       } else if (e.type === 'permission') {
         // Background task waiting for permission — keep sidebar fresh
         onTasksChanged()
       } else if (e.type === 'error' && e.taskId === taskId) {
         setStatusNote({ kind: 'error', text: e.message })
-        setPhase('error')
+        applyPhase('error', 'error')
         setSending(false)
       } else if (e.type === 'usage' && e.taskId === taskId) {
         setCtxUsed(e.usedTokens)
       }
     },
-    [taskId, onTasksChanged, refreshCaps]
+    [taskId, onTasksChanged, refreshCaps, applyPhase]
   )
 
   useEffect(() => onAgentEvent(applyEvent), [applyEvent])
@@ -429,7 +457,7 @@ export function AgentWorkspace({
       return
     }
     setSending(true)
-    setPhase('thinking')
+    applyPhase('thinking', 'running')
     setStatusNote(null)
     const result = await sendMessage({
       taskId,
@@ -441,7 +469,7 @@ export function AgentWorkspace({
     })
     if (!result.ok) {
       setStatusNote({ kind: 'error', text: result.error || '发送失败' })
-      setPhase('error')
+      applyPhase('error', 'error')
       setSending(false)
       return
     }
@@ -493,7 +521,7 @@ export function AgentWorkspace({
               onClick={() => {
                 void cancelSession(taskId)
                 setSending(false)
-                setPhase('idle')
+                applyPhase('idle', 'idle')
               }}
             >
               停止
@@ -706,7 +734,7 @@ export function AgentWorkspace({
           onRespond={(allow, reason, remember, updatedInput) => {
             void respondPermission(permission.requestId, allow, reason, remember, updatedInput)
             setPermission(null)
-            setPhase((p) => (p === 'waiting' ? 'thinking' : p))
+            if (phase === 'waiting') applyPhase('thinking', 'running')
           }}
         />
       )}

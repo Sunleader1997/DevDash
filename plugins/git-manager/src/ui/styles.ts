@@ -191,6 +191,16 @@ export const pluginCss = `
   color: white;
   font-weight: 560;
 }
+.gm-btn.danger {
+  background: var(--danger, #ff453a);
+  border-color: transparent;
+  color: white;
+  font-weight: 560;
+}
+.gm-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .gm-btn.ghost { border-color: transparent; background: transparent; }
 .gm-btn.ghost:hover { background: var(--bg-hover); }
 .gm-seg {
@@ -635,8 +645,9 @@ export const pluginCss = `
   border: 1px solid var(--separator);
   border-radius: 12px;
   box-shadow: var(--shadow-md);
-  z-index: 50;
+  z-index: 160;
   padding: 6px;
+  animation: gm-modal-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .gm-dropdown button {
   width: 100%;
@@ -652,31 +663,57 @@ export const pluginCss = `
 .gm-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.28);
+  background: rgba(15, 18, 24, 0.36);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
   display: grid;
   place-items: center;
   z-index: 100;
   padding: 24px;
+  user-select: none;
+  animation: gm-fade-in 180ms ease-out;
 }
 .gm-modal {
   width: min(520px, 100%);
   background: var(--bg-elevated);
   border: 1px solid var(--separator);
   border-radius: 16px;
-  box-shadow: var(--shadow-md);
+  box-shadow:
+    var(--shadow-md),
+    0 24px 64px rgba(0, 0, 0, 0.18);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: min(86vh, 720px);
+  animation: gm-modal-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  outline: none;
+}
+.gm-modal.wide {
+  width: min(640px, 100%);
 }
 .gm-modal-header {
   padding: 14px 16px;
   border-bottom: 1px solid var(--separator);
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 0 0 auto;
+}
+.gm-modal-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .gm-modal-body {
   padding: 14px 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-height: min(70vh, 560px);
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
 }
 .gm-modal-footer {
@@ -685,6 +722,31 @@ export const pluginCss = `
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  flex: 0 0 auto;
+}
+.gm-modal-message {
+  color: var(--fg-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+  word-break: break-word;
+}
+.gm-modal-message strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+@keyframes gm-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes gm-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 .gm-field label {
   display: block;
